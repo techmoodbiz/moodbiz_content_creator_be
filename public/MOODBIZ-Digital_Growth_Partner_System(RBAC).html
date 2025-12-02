@@ -1,0 +1,1257 @@
+<!DOCTYPE html>
+<html lang="vi">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MOODBIZ - Digital Growth Partner System (RBAC)</title>
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <!-- Babel for JSX transformation -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <!-- Google Fonts -->
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Montserrat:wght@500;600;700;800&display=swap"
+    rel="stylesheet">
+
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4,
+    h5,
+    h6 {
+      font-family: 'Montserrat', sans-serif;
+    }
+
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+      background: #f1f1f1;
+    }
+
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+
+  <!-- MAIN SCRIPT: data-type="module" is crucial for imports to work -->
+  <!-- Firebase SDK (compat) -->
+  <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/11.0.2/firebase-firestore-compat.js"></script>
+
+
+  <script type="text/babel" data-type="module">
+    // --- IMPORTS via ESM.SH ---
+    import React, { useState, useEffect, useMemo } from 'https://esm.sh/react@18.2.0';
+    import { createRoot } from 'https://esm.sh/react-dom@18.2.0/client';
+    // Firebase configuration and initialization (compat SDK)
+    const firebaseConfig = {
+      apiKey: "AIzaSyAa7s0JC9Z6Jz_cMQCD_oBT0ZUzj50tMVA",
+      authDomain: "moodbiz---rbac.firebaseapp.com",
+      projectId: "moodbiz---rbac",
+      storageBucket: "moodbiz---rbac.firebasestorage.app",
+      messagingSenderId: "566398793256",
+      appId: "1:566398793256:web:500b5f58c5c008984fa71d",
+      measurementId: "G-79ZDZ9X8ER"
+    };
+
+    if (!firebase.apps.length) {
+      firebase.initializeApp(firebaseConfig);
+    }
+    const auth = firebase.auth();
+    // Đặt persistence mode về LOCAL - session tồn tại kể cả sau khi đóng browser
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL);
+    const db = firebase.firestore();
+
+
+    // Import Lucide Icons
+    import {
+      Sparkles, Search, Copy, RefreshCw, ChevronRight, ChevronLeft, ChevronDown,
+      BarChart2, PenTool, BookOpen, Activity, CheckCircle, AlertCircle,
+      ArrowRight, Globe, Users, Zap, Target, Layers, Briefcase, Award,
+      LayoutDashboard, Check, X, Handshake, Shield, Lightbulb, Eye, Fingerprint,
+      Settings, Save, RotateCcw, AlertTriangle, FileText, MessageSquare, UserCheck, Key,
+      Lock, LogOut, User, Building2, PlusCircle, Trash2, Edit3
+    } from 'https://esm.sh/lucide-react@0.468.0?deps=react@18.2.0';
+
+    // --- DESIGN SYSTEM CONSTANTS ---
+    const THEME = {
+      navy: '#102d62',       // Deep Navy - Primary Text & Headers
+      cyan: '#01ccff',       // Vivid Cyan - Accents & Highlights
+      white: '#ffffff',
+      bg: '#f8f9fa',
+      border: '#e2e8f0',
+      fontHead: '"Montserrat", sans-serif',
+      fontBody: '"Inter", sans-serif',
+    };
+
+
+
+    // --- DEFAULT PROMPTS (From V3 File) ---
+    const DEFAULT_GEN_PROMPT = `Bạn là Trợ lý AI của {brand_name}.
+Nhiệm vụ: Viết bài đăng cho kênh {platform} về chủ đề: "{topic}".
+
+THÔNG TIN THƯƠNG HIỆU (Cần tuân thủ tuyệt đối):
+  [TÍNH CÁCH THƯƠNG HIỆU]
+[TÍNH CÁCH THƯƠNG HIỆU]
+{brand_personality}
+
+[GIỌNG VĂN & PHONG CÁCH]
+{brand_voice}
+
+YÊU CẦU BÀI VIẾT:
+1. Cấu trúc bài viết phải phù hợp với kênh {platform} (Ví dụ: Facebook dùng icon hợp lý, LinkedIn chuyên nghiệp hơn).
+2. Bắt đầu bằng một Headline (Tiêu đề) thu hút, đánh trúng insight khách hàng.
+3. Thân bài triển khai logic, sử dụng bullet points để dễ đọc.
+4. Kết thúc bằng Call to Action (CTA) mạnh mẽ và rõ ràng.
+5. Sử dụng tiếng Việt chuẩn mực, không dùng từ ngữ sáo rỗng.`;
+
+    // Updated V3 Auditor Prompt
+    const DEFAULT_AUDIT_PROMPT = `Bạn là Chuyên gia Kiểm duyệt Thương hiệu {brand_name} - Đóng vai trò "Brand Guardian".
+
+NHIỆM VỤ CHÍNH:
+Phân tích kỹ lưỡng đoạn văn sau, so sánh với tiêu chuẩn Brand Personality & Brand Voice của {brand_name}. Đưa ra báo cáo chi tiết về mức độ tuân thủ, xác định các vấn đề và đề xuất cải thiện.
+
+ĐẦU VÀO:
+Văn bản cần kiểm tra: "{text}"
+
+THAM CHIẾU KIỂM DUYỆT:
+[BRAND PERSONALITY - Tính cách thương hiệu]
+{brand_personality}
+
+[BRAND VOICE - Giọng văn chuẩn]
+{brand_voice}
+
+---
+
+HƯỚNG DẪN PHÂN TÍCH CHI TIẾT:
+
+**PHẦN 1: ĐÁNH GIÁ BRAND PERSONALITY (Tính cách)**
+Kiểm tra xem đoạn văn có phản ánh đúng tính cách thương hiệu không:
+- Professional & Trustworthy: Có tôn trọng, chuyên nghiệp, đáng tin cậy?
+- Modern & Tech-Savvy: Có hiện đại, am hiểu xu hướng, công nghệ?
+- Strategic & Results-Oriented: Có tập trung vào kết quả, dữ liệu, chiến lược?
+- Dynamic & Innovative: Có năng động, sáng tạo, đổi mới?
+- Collaborative & Supportive: Có hợp tác, hỗ trợ, đồng hành?
+
+**PHẦN 2: ĐÁNH GIÁ BRAND VOICE (Giọng văn)**
+Kiểm tra kỹ các khía cạnh:
+- Tone of Voice: Ngôn ngữ có rõ ràng, chuyên nghiệp nhưng thân thiện, tự tin nhưng không kiêu?
+- Phong cách: Có súc tích, Sharp & Concise, tránh dài dòng, mơ hồ?
+- Data-driven: Có sử dụng con số, thống kê, dẫn chứng cụ thể?
+- Solution-oriented: Có tập trung vào giá trị thực tế, lợi ích cho khách hàng B2B/SME?
+
+**PHẦN 3: PHÁT HIỆN VÀ LIỆT KÊ CÁC VẤN ĐỀ**
+- Từ/cụm từ sáo rỗng (cliché): "tuyệt vời", "đặc biệt", "thần kỳ"...
+- Từ tiêu cực hoặc quá cảm xúc: "khó khăn", "vấn đề", "tội lỗi"...
+- Cấu trúc câu dài, rối rắm, khó hiểu
+- Thiếu dữ liệu, không có minh chứng cụ thể
+- Không phù hợp với Brand Voice (quá hình thức, quá thân mật, quá kỹ thuật...)
+
+**PHẦN 4: VIẾT LẠI (REWRITE)**
+Sửa lại đoạn văn để tuân thủ 100% Brand Personality & Brand Voice của MOODBIZ.
+
+---
+
+HÃY TRẢ VỀ KẾT QUẢ DƯỚI DẠNG JSON THUẦN (Không Markdown) với cấu trúc sau:
+
+{
+  "overall_score": (số từ 0-100),
+  "summary": "Nhận xét tổng quát 1-2 câu về mức độ tuân thủ Brand",
+  
+  "brand_personality_assessment": {
+    "is_compliant": true/false,
+    "traits_matched": ["Danh sách các tính cách được phản ánh"],
+    "traits_missing": ["Danh sách các tính cách còn thiếu"],
+    "detailed_comment": "Phân tích chi tiết về tính cách"
+  },
+  
+  "brand_voice_assessment": {
+    "is_compliant": true/false,
+    "tone_quality": "Phù hợp/Cần cải thiện",
+    "conciseness": "Súc tích/Dài dòng",
+    "data_driven": "Có dữ liệu/Thiếu dữ liệu",
+    "solution_focused": "Tập trung giải pháp/Không rõ ràng",
+    "detailed_comment": "Phân tích chi tiết về giọng văn"
+  },
+  
+  "identified_issues": [
+    {
+      "issue_type": "Từ sáo rỗng / Cấu trúc dài / Thiếu dữ liệu / Tone không phù hợp",
+      "problematic_text": "Đoạn văn cụ thể có vấn đề",
+      "reason": "Lý do chi tiết tại sao không phù hợp Brand",
+      "severity": "High/Medium/Low",
+      "suggestion": "Gợi ý thay thế chuẩn mực"
+    }
+  ],
+  
+  "rewritten_text": "Văn bản đã được viết lại hoàn chỉnh, 100% chuẩn Brand Personality & Brand Voice",
+  
+  "improvement_tips": [
+    "Tip 1 để cải thiện nội dung",
+    "Tip 2 để cải thiện nội dung"
+  ]
+}`;
+
+    // --- MOCK STATS & VALUES ---
+    const COMPANY_STATS = [
+      { value: "3+", label: "Năm Hình Thành & Phát Triển" },
+      { value: "18+", label: "Giải Pháp Digital Chuyên Biệt" },
+      { value: "100%", label: "Đội Ngũ In-house Chuyên Sâu" },
+      { value: "80+", label: "Dự Án B2B/Brand/SME" }
+    ];
+
+    const CORE_VALUES = [
+      { icon: Zap, title: "Đổi Mới", desc: "Không ngừng sáng tạo giải pháp mới." },
+      { icon: Handshake, title: "Đồng Hành", desc: "Cam kết dài hạn cùng đối tác." },
+      { icon: Target, title: "Quyết Liệt", desc: "Tập trung vào kết quả cuối cùng." },
+      { icon: Shield, title: "Trách Nhiệm", desc: "Minh bạch trong mọi hoạt động." }
+    ];
+
+    // --- NAVIGATION CONFIG (RBAC Ready) ---
+    const NAV_ITEMS = [
+      { type: 'header', label: 'Tổng Quan' },
+      { type: 'link', id: 'dashboard', icon: LayoutDashboard, label: 'Company Profile' },
+
+      { type: 'header', label: 'AI Lab Tools' },
+      { type: 'link', id: 'generator', icon: PenTool, label: 'Content Generator' },
+      { type: 'link', id: 'auditor', icon: Activity, label: 'Voice Auditor' },
+
+      // Role-based Visibility
+      { type: 'header', label: 'Cấu Hình', role: ['admin', 'brand_owner'] },
+      { type: 'link', id: 'settings', icon: Settings, label: 'Cấu hình hệ thống', role: ['admin', 'brand_owner'] },
+      { type: 'link', id: 'brands', icon: Building2, label: 'Quản lý thương hiệu', role: ['admin'] }, // New Admin Menu
+      { type: 'link', id: 'generations', icon: FileText, label: 'Lịch sử nội dung AI', role: ['admin'] },
+
+      { type: 'header', label: 'Tài Nguyên' },
+      { type: 'link', id: 'guidelines', icon: BookOpen, label: 'Brand Guidelines' }
+    ];
+
+    // --- REUSABLE COMPONENT: BRAND SELECTOR ---
+    const BrandSelector = ({ availableBrands, selectedBrandId, onChange, disabled }) => {
+      // Case 1: Owner (Only 1 brand) -> Show static badge
+      if (availableBrands.length === 1) {
+        const brand = availableBrands[0];
+        return (
+          <div className="flex items-center justify-between px-4 py-3 bg-blue-50 border border-blue-100 rounded-xl text-[#102d62]">
+            <div className="flex items-center gap-2 font-bold text-sm">
+              <Building2 size={18} className="text-[#01ccff]" />
+              {brand.name}
+            </div>
+            <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-200 text-blue-800 rounded-full uppercase tracking-wide">Locked</span>
+          </div>
+        );
+      }
+
+      // Case 2: Creator/Admin (Multiple) -> Show Dropdown
+      return (
+        <div className="relative">
+          <div className="absolute left-4 top-3.5 text-[#102d62] pointer-events-none"><Building2 size={18} /></div>
+          <div className="absolute right-4 top-4 text-slate-400 pointer-events-none"><ChevronDown size={16} /></div>
+          <select
+            value={selectedBrandId}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={disabled}
+            className="w-full pl-11 pr-10 py-3 bg-white border-2 border-slate-200 rounded-xl appearance-none font-bold text-[#102d62] focus:border-[#01ccff] outline-none transition-all cursor-pointer shadow-sm hover:border-blue-200 text-sm"
+          >
+            {availableBrands.map(b => (
+              <option key={b.id} value={b.id}>{b.name}</option>
+            ))}
+          </select>
+        </div>
+      );
+    };
+
+    // --- HELPER COMPONENTS ---
+    const StatCard = ({ value, label }) => (
+      <div className="bg-white p-6 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow group">
+        <div className="text-5xl font-extrabold tracking-tight mb-2 group-hover:scale-105 transition-transform origin-left" style={{ color: THEME.navy }}>{value}</div>
+        <div className="w-12 h-1 mb-4" style={{ backgroundColor: THEME.cyan }}></div>
+        <div className="text-sm font-medium text-slate-600 uppercase tracking-wide">{label}</div>
+      </div>
+    );
+
+    const SectionHeader = ({ title, subtitle }) => (
+      <div className="mb-8">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="w-1.5 h-8 rounded-full" style={{ backgroundColor: THEME.cyan }}></div>
+          <h2 className="text-2xl font-bold uppercase tracking-tight" style={{ color: THEME.navy }}>{title}</h2>
+        </div>
+        {subtitle && <p className="text-slate-500 text-sm ml-5">{subtitle}</p>}
+      </div>
+    );
+
+    // --- LOGIN SCREEN ---
+    const LoginScreen = ({ onLogin }) => {
+      const [email, setEmail] = useState('');
+      const [password, setPassword] = useState('');
+      const [error, setError] = useState('');
+
+      const handleSubmit = async (e) => {
+        e.preventDefault();
+        setError('');
+
+        try {
+          // Đăng nhập bằng Firebase Auth (dùng username như email)
+          const userCredential = await auth.signInWithEmailAndPassword(email, password);
+          const fbUser = userCredential.user;
+
+          // Đọc metadata từ Firestore (collection 'users', document theo uid)
+          let userData = {
+            uid: fbUser.uid,
+            email: fbUser.email || email,
+            displayName: fbUser.displayName || email,
+            role: 'viewer',
+            brandId: 'all'
+          };
+
+          try {
+            const docRef = db.collection('users').doc(fbUser.uid);
+            const snap = await docRef.get();
+            if (snap.exists) {
+              userData = { ...userData, ...snap.data() };
+            }
+          } catch (innerErr) {
+            console.error('Lỗi đọc user metadata từ Firestore', innerErr);
+          }
+
+          onLogin(userData);
+        } catch (err) {
+          console.error('Lỗi đăng nhập Firebase', err);
+          setError('Sai email hoặc mật khẩu hoặc tài khoản chưa được tạo.');
+        }
+      };
+
+      return (
+        <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center p-4 relative overflow-hidden">
+          <div className="absolute top-0 right-0 w-full h-full bg-[#102d62] opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(circle at 100% 0%, #01ccff 0%, transparent 50%)' }}></div>
+          <div className="bg-white p-8 md:p-10 rounded-3xl shadow-2xl w-full max-w-md relative z-10 border border-slate-100">
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 bg-[#102d62] rounded-2xl mx-auto flex items-center justify-center mb-4 shadow-lg shadow-blue-900/20"><Sparkles size={32} className="text-[#01ccff]" /></div>
+              <h1 className="text-2xl font-extrabold text-[#102d62]">MOODBIZ Portal</h1>
+              <p className="text-sm text-slate-500 mt-2">Hệ thống quản trị Đa thương hiệu (RBAC)</p>
+            </div>
+            {error && <div className="mb-6 p-4 bg-red-50 border border-red-100 rounded-xl flex items-center gap-3 text-red-600 text-sm font-medium animate-in fade-in slide-in-from-top-2"><AlertTriangle size={18} /> {error}</div>}
+            <form onSubmit={handleSubmit} className="space-y-5">
+              <div>
+                <label className="block text-sm font-bold text-[#102d62] mb-2">Email đăng nhập</label>
+                <div className="relative">
+                  <div className="absolute left-4 top-3.5 text-slate-400"><User size={18} /></div>
+                  <input type="email" className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#01ccff] outline-none font-medium text-[#102d62]" placeholder="VD: user@moodbiz.vn" value={email} onChange={e => setEmail(e.target.value)} />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#102d62] mb-2">Mật khẩu</label>
+                <div className="relative">
+                  <div className="absolute left-4 top-3.5 text-slate-400"><Lock size={18} /></div>
+                  <input type="password" className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-[#01ccff] outline-none font-medium text-[#102d62]" placeholder="••••••••" value={password} onChange={e => setPassword(e.target.value)} />
+                </div>
+              </div>
+              <button type="submit" className="w-full py-3.5 bg-[#102d62] text-white rounded-xl font-bold hover:bg-blue-900 transition-all shadow-lg flex items-center justify-center gap-2">Đăng Nhập <ArrowRight size={18} /></button>
+            </form>
+          </div>
+        </div>
+      );
+    };
+
+    // --- BRAND MANAGEMENT MODAL ---
+    const BrandModal = ({ isOpen, onClose, onSave, brand }) => {
+      const [name, setName] = useState(brand?.name || '');
+      const [id, setId] = useState(brand?.id || `brand_${Date.now()}`);
+      const [personality, setPersonality] = useState(brand?.personality || '');
+      const [voice, setVoice] = useState(brand?.voice || '');
+
+      useEffect(() => {
+        if (brand) {
+          setName(brand.name);
+          setId(brand.id);
+          setPersonality(brand.personality);
+          setVoice(brand.voice);
+        } else {
+          setName('');
+          setId(`brand_${Date.now()}`);
+          setPersonality('');
+          setVoice('');
+        }
+      }, [brand, isOpen]);
+
+      if (!isOpen) return null;
+
+      return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl p-8 animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-center mb-6">
+              <h2 className="text-2xl font-bold text-[#102d62]">{brand ? 'Chỉnh sửa Brand' : 'Thêm Brand Mới'}</h2>
+              <button onClick={onClose} className="text-slate-400 hover:text-red-500"><X size={24} /></button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-bold text-[#102d62] mb-1">Tên Brand</label>
+                  <input className="w-full p-3 border border-slate-200 rounded-lg" value={name} onChange={e => setName(e.target.value)} placeholder="VD: HighLand Coffee" />
+                </div>
+                <div>
+                  <label className="block text-sm font-bold text-[#102d62] mb-1">ID (Duy nhất)</label>
+                  <input className="w-full p-3 border border-slate-200 rounded-lg bg-slate-50" value={id} disabled={!!brand} onChange={e => setId(e.target.value)} placeholder="b_highland" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#102d62] mb-1">Personality (Tính cách)</label>
+                <textarea className="w-full p-3 border border-slate-200 rounded-lg h-24" value={personality} onChange={e => setPersonality(e.target.value)} placeholder="Mô tả tính cách..." />
+              </div>
+              <div>
+                <label className="block text-sm font-bold text-[#102d62] mb-1">Voice (Giọng văn)</label>
+                <textarea className="w-full p-3 border border-slate-200 rounded-lg h-24" value={voice} onChange={e => setVoice(e.target.value)} placeholder="Mô tả giọng văn..." />
+              </div>
+            </div>
+            <div className="mt-8 flex justify-end gap-3">
+              <button onClick={onClose} className="px-6 py-3 text-slate-600 hover:bg-slate-100 rounded-xl font-bold">Hủy</button>
+              <button onClick={() => onSave({ id, name, personality, voice })} className="px-6 py-3 bg-[#102d62] text-white rounded-xl font-bold hover:bg-blue-900 shadow-lg">Lưu Brand</button>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    // --- MAIN APP ---
+    const App = () => {
+      // State: Auth & System
+      const [currentUser, setCurrentUser] = useState(null);
+      const [authReady, setAuthReady] = useState(false);
+      const [activeTab, setActiveTab] = useState('dashboard');
+      const [apiKey, setApiKey] = useState(() => localStorage.getItem('moodbiz_api_key') || "");
+
+      // State: Data (Prompts & Brands)
+      const [systemPrompts, setSystemPrompts] = useState(() => {
+        const saved = localStorage.getItem('moodbiz_prompts');
+        return saved ? JSON.parse(saved) : { generator: DEFAULT_GEN_PROMPT, auditor: DEFAULT_AUDIT_PROMPT };
+      });
+      const [brands, setBrands] = useState([]);
+      const [brandsLoaded, setBrandsLoaded] = useState(false);
+      const [generations, setGenerations] = useState([]);
+      const [generationsLoaded, setGenerationsLoaded] = useState(false);
+      const [selectedGeneration, setSelectedGeneration] = useState(null);
+
+      // State: Tools
+      const [genTopic, setGenTopic] = useState('');
+      const [genPlatform, setGenPlatform] = useState('Facebook Post');
+      const [genResult, setGenResult] = useState('');
+      const [isGenerating, setIsGenerating] = useState(false);
+
+      const [auditText, setAuditText] = useState('');
+      const [auditResult, setAuditResult] = useState(null);
+      const [isAuditing, setIsAuditing] = useState(false);
+      const [saveStatus, setSaveStatus] = useState('');
+
+      // State: Brand Management (Admin)
+      const [isBrandModalOpen, setIsBrandModalOpen] = useState(false);
+      const [editingBrand, setEditingBrand] = useState(null);
+
+      // Firebase Auth State Listener
+      useEffect(() => {
+        const unsubscribe = auth.onAuthStateChanged(async (fbUser) => {
+          if (fbUser) {
+            // User is signed in, get metadata from Firestore
+            let userData = {
+              uid: fbUser.uid,
+              email: fbUser.email,
+              displayName: fbUser.displayName || fbUser.email,
+              role: 'viewer',
+              brandId: 'all'
+            };
+
+            try {
+              const docRef = db.collection('users').doc(fbUser.uid);
+              const snap = await docRef.get();
+              if (snap.exists) {
+                userData = { ...userData, ...snap.data() };
+              }
+            } catch (err) {
+              console.error('Lỗi đọc user metadata từ Firestore', err);
+            }
+
+            setCurrentUser(userData);
+          } else {
+            // User is signed out
+            setCurrentUser(null);
+          }
+          setAuthReady(true);
+        });
+
+        // Cleanup subscription on unmount
+        return () => unsubscribe();
+      }, []);
+
+      // Firestore Brands Listener - Real-time sync
+      useEffect(() => {
+        const unsubscribe = db.collection('brands').onSnapshot(
+          (snapshot) => {
+            const firestoreBrands = [];
+            snapshot.forEach((doc) => {
+              firestoreBrands.push({
+                id: doc.id,
+                ...doc.data()
+              });
+            });
+
+            // If no brands in Firestore, initialize with INITIAL_BRANDS
+            if (firestoreBrands.length === 0 && !brandsLoaded) {
+              // Upload INITIAL_BRANDS to Firestore
+              INITIAL_BRANDS.forEach((brand) => {
+                db.collection('brands').doc(brand.id).set({
+                  id: brand.id,
+                  name: brand.name,
+                  personality: brand.personality,
+                  voice: brand.voice
+                }).catch(err => console.error('Error initializing brand', err));
+              });
+            } else {
+              setBrands(firestoreBrands);
+            }
+
+            setBrandsLoaded(true);
+          },
+          (error) => {
+            console.error('Lỗi lắng nghe brands từ Firestore', error);
+            setBrandsLoaded(true);
+          }
+        );
+
+        return () => unsubscribe();
+      }, []);
+
+      // === LISTENER GENERATIONS ===
+      useEffect(() => {
+        if (!currentUser) return;
+
+        let query = db
+          .collection('generations')
+          .orderBy('timestamp', 'desc')
+          .limit(100);
+
+        // Nếu sau này muốn cho non-admin xem lịch sử riêng,
+        // có thể filter theo user_id ở đây.
+        const unsubscribe = query.onSnapshot(
+          (snapshot) => {
+            const items = [];
+            snapshot.forEach((doc) => {
+              items.push({ id: doc.id, ...doc.data() });
+            });
+            setGenerations(items);
+            setGenerationsLoaded(true);
+          },
+          (error) => {
+            console.error('Lỗi lắng nghe generations từ Firestore', error);
+            setGenerationsLoaded(true);
+          }
+        );
+
+        return () => unsubscribe();
+      }, [currentUser]);
+
+      // Format Firestore timestamp thành chuỗi hiển thị
+      const formatTimestamp = (ts) => {
+        if (!ts) return '';
+        try {
+          if (ts.toDate) {
+            // Trường hợp là Firestore Timestamp
+            return ts.toDate().toLocaleString('vi-VN');
+          }
+          // Trường hợp là số / string thời gian
+          return new Date(ts).toLocaleString('vi-VN');
+        } catch (e) {
+          console.error('Lỗi format timestamp', e);
+          return '';
+        }
+      };
+
+      // --- RBAC LOGIC: FILTER BRANDS ---
+      const availableBrands = useMemo(() => {
+        if (!currentUser) return [];
+        if (currentUser.role === 'admin') return brands; // Admin sees ALL
+        if (currentUser.role === 'brand_owner') return brands.filter(b => b.id === currentUser.ownedBrandId); // Owner sees OWN
+        if (currentUser.role === 'content_creator') return brands.filter(b => currentUser.assignedBrandIds.includes(b.id)); // Creator sees ASSIGNED
+        return [];
+      }, [currentUser, brands]);
+
+      // Selected Brand State (Defaults to first available)
+      const [selectedBrandId, setSelectedBrandId] = useState('');
+
+      useEffect(() => {
+        // Auto-select first brand if selection invalid or empty
+        if (availableBrands.length > 0 && (!selectedBrandId || !availableBrands.find(b => b.id === selectedBrandId))) {
+          setSelectedBrandId(availableBrands[0].id);
+        }
+      }, [availableBrands]);
+
+      // --- HANDLERS ---
+      const handleLogin = (user) => {
+        // Firebase Auth đã xử lý persistence, không cần lưu localStorage
+        // currentUser sẽ được set tự động qua onAuthStateChanged
+        setCurrentUser(user);
+      };
+
+      const handleLogout = async () => {
+        if (confirm("Bạn có chắc muốn đăng xuất?")) {
+          try {
+            await auth.signOut();
+            // onAuthStateChanged sẽ tự động set currentUser = null
+            setActiveTab('dashboard');
+            setGenResult('');
+            setAuditResult(null);
+          } catch (err) {
+            console.error('Lỗi đăng xuất', err);
+            alert('Có lỗi khi đăng xuất');
+          }
+        }
+      };
+
+      const saveConfig = async () => {
+        localStorage.setItem('moodbiz_prompts', JSON.stringify(systemPrompts));
+
+        // Save brands to Firestore (for settings tab edits)
+        try {
+          const savePromises = brands.map(brand =>
+            db.collection('brands').doc(brand.id).set({
+              id: brand.id,
+              name: brand.name,
+              personality: brand.personality,
+              voice: brand.voice
+            }, { merge: true })
+          );
+          await Promise.all(savePromises);
+          setSaveStatus('Đã lưu cấu hình!');
+        } catch (err) {
+          console.error('Lỗi lưu brands lên Firestore', err);
+          setSaveStatus('Có lỗi khi lưu!');
+        }
+
+        setTimeout(() => setSaveStatus(''), 3000);
+      };
+
+      const resetConfig = async () => {
+        if (confirm("Khôi phục mặc định sẽ mất hết dữ liệu hiện tại?")) {
+          setSystemPrompts({ generator: DEFAULT_GEN_PROMPT, auditor: DEFAULT_AUDIT_PROMPT });
+          localStorage.removeItem('moodbiz_prompts');
+
+          // Reset brands in Firestore
+          try {
+            // Delete all existing brands
+            const snapshot = await db.collection('brands').get();
+            const deletePromises = snapshot.docs.map(doc => doc.ref.delete());
+            await Promise.all(deletePromises);
+
+            // Re-initialize with INITIAL_BRANDS
+            const addPromises = INITIAL_BRANDS.map(brand =>
+              db.collection('brands').doc(brand.id).set({
+                id: brand.id,
+                name: brand.name,
+                personality: brand.personality,
+                voice: brand.voice
+              })
+            );
+            await Promise.all(addPromises);
+
+            setSaveStatus('Đã khôi phục!');
+          } catch (err) {
+            console.error('Lỗi khôi phục brands', err);
+            alert('Có lỗi khi khôi phục brands');
+          }
+
+          setTimeout(() => setSaveStatus(''), 3000);
+        }
+      };
+
+      // Brand CRUD Handlers
+      const handleAddBrand = () => {
+        setEditingBrand(null);
+        setIsBrandModalOpen(true);
+      };
+
+      const handleEditBrand = (brand) => {
+        setEditingBrand(brand);
+        setIsBrandModalOpen(true);
+      };
+
+      const handleDeleteBrand = async (brandId) => {
+        if (confirm("Bạn có chắc chắn muốn xóa Brand này? Hành động không thể hoàn tác.")) {
+          try {
+            // Delete from Firestore only - listener will update state
+            await db.collection('brands').doc(brandId).delete();
+          } catch (err) {
+            console.error('Lỗi xóa brand trên Firestore', err);
+            alert('Có lỗi khi xóa brand. Vui lòng thử lại.');
+          }
+        }
+      };
+
+      const handleSaveBrand = async (brandData) => {
+        // Check if ID exists (for new brands)
+        if (!editingBrand && brands.find((b) => b.id === brandData.id)) {
+          alert("ID Brand đã tồn tại!");
+          return;
+        }
+
+        try {
+          // Save to Firestore only - listener will update state automatically
+          await db.collection('brands').doc(brandData.id).set(
+            {
+              id: brandData.id,
+              name: brandData.name,
+              personality: brandData.personality,
+              voice: brandData.voice,
+            },
+            { merge: true }
+          );
+
+          setIsBrandModalOpen(false);
+        } catch (err) {
+          console.error('Lỗi lưu brand lên Firestore', err);
+          alert('Có lỗi khi lưu brand. Vui lòng thử lại.');
+        }
+      };
+
+      const handleCopy = (text) => {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      };
+
+      // --- API CALLS WITH CONTEXT INJECTION ---
+      const getContext = () => brands.find(b => b.id === selectedBrandId);
+
+      const handleGenerate = async () => {
+        if (!apiKey) { alert("Vui lòng nhập API Key (Admin cần cấu hình trước)."); return; }
+        const brand = getContext();
+        if (!brand) { alert("Chưa chọn thương hiệu."); return; }
+
+        setIsGenerating(true);
+        setGenResult('');
+
+        // Inject Brand Data into Prompt
+        const prompt = systemPrompts.generator
+          .replace(/{platform}/g, genPlatform)
+          .replace(/{topic}/g, genTopic)
+          .replace(/{brand_name}/g, brand.name)
+          .replace(/{brand_personality}/g, brand.personality)
+          .replace(/{brand_voice}/g, brand.voice);
+
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message);
+
+          const outputText =
+            data.candidates?.[0]?.content?.parts?.[0]?.text || "No response.";
+
+          setGenResult(outputText);
+
+          // === LƯU LỊCH SỬ GENERATION LÊN FIRESTORE ===
+          try {
+            await db.collection('generations').add({
+              type: 'generator',
+              brand_id: brand.id,
+              user_id: currentUser.uid,
+              user_name: currentUser.name,
+              input_data: {
+                platform: genPlatform,
+                topic: genTopic,
+                output_data: outputText, // theo đúng field mẫu của bạn
+              },
+              timestamp: firebase.firestore.FieldValue.serverTimestamp(),
+            });
+          } catch (logErr) {
+            console.error('Lỗi ghi lịch sử generations', logErr);
+          }
+        } catch (e) { setGenResult("Lỗi AI: " + e.message); }
+        finally { setIsGenerating(false); }
+      };
+
+      const handleAudit = async () => {
+        if (!apiKey) { alert("Vui lòng nhập API Key."); return; }
+        const brand = getContext();
+        if (!brand) { alert("Chưa chọn thương hiệu."); return; }
+        if (!auditText) return;
+
+        setIsAuditing(true);
+        setAuditResult(null);
+
+        const prompt = systemPrompts.auditor
+          .replace(/{text}/g, auditText)
+          .replace(/{brand_name}/g, brand.name)
+          .replace(/{brand_personality}/g, brand.personality)
+          .replace(/{brand_voice}/g, brand.voice);
+
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: { responseMimeType: "application/json" }
+            })
+          });
+          const data = await response.json();
+          if (data.error) throw new Error(data.error.message);
+          if (data.candidates?.[0]?.content?.parts?.[0]?.text) {
+            setAuditResult(JSON.parse(data.candidates[0].content.parts[0].text));
+          }
+        } catch (e) { alert("Lỗi AI: " + e.message); }
+        finally { setIsAuditing(false); }
+      };
+
+      // Show loading while checking auth state
+      if (!authReady) {
+        return (
+          <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-16 h-16 border-4 border-[#01ccff] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-slate-500 font-medium">Đang kiểm tra phiên đăng nhập...</p>
+            </div>
+          </div>
+        );
+      }
+
+      if (!currentUser) return <LoginScreen onLogin={handleLogin} />;
+
+      // Show loading while brands are being fetched from Firestore
+      if (!brandsLoaded) {
+        return (
+          <div className="min-h-screen bg-[#f8f9fa] flex items-center justify-center">
+            <div className="text-center">
+              <div className="w-16 h-16 border-4 border-[#01ccff] border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+              <p className="text-slate-500 font-medium">Đang tải dữ liệu brands...</p>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-[#f8f9fa] font-sans text-[#374151] flex flex-col md:flex-row">
+          {/* SIDEBAR */}
+          <aside className="w-full md:w-72 bg-[#102d62] text-white flex flex-col shrink-0 shadow-2xl z-20 relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-64 h-64 bg-[#01ccff] rounded-full mix-blend-overlay opacity-10 blur-3xl -mr-16 -mt-16 pointer-events-none"></div>
+            <div className="p-8 border-b border-blue-900/30 relative z-10">
+              <div className="flex items-center gap-3">
+                <div className="h-8 w-1.5 bg-[#01ccff]"></div>
+                <div><h1 className="text-2xl font-extrabold tracking-tight leading-none">MOODBIZ</h1><p className="text-[10px] text-[#01ccff] uppercase tracking-[0.2em] mt-1 font-medium">Partner Portal</p></div>
+              </div>
+            </div>
+            <nav className="flex-1 p-6 space-y-1 relative z-10 overflow-y-auto">
+              {NAV_ITEMS.map((item, index) => {
+                if (item.role && !item.role.includes(currentUser.role)) return null;
+                if (item.type === 'header') return <div key={index} className="px-4 pt-6 pb-2 text-xs font-bold text-[#01ccff] uppercase tracking-widest opacity-80">{item.label}</div>;
+                return (
+                  <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 px-4 py-3.5 rounded-xl text-sm font-bold transition-all duration-300 group ${activeTab === item.id ? 'bg-white text-[#102d62] shadow-lg translate-x-1' : 'text-blue-200 hover:bg-blue-900/50 hover:text-white'}`}>
+                    <item.icon size={20} className={activeTab === item.id ? 'text-[#01ccff]' : 'group-hover:text-[#01ccff] transition-colors'} />
+                    {item.label}
+                  </button>
+                );
+              })}
+            </nav>
+            <div className="p-6 relative z-10 border-t border-blue-900/30">
+              <div className="flex items-center gap-3 mb-4 px-2">
+                <div className="w-10 h-10 rounded-full bg-blue-800 flex items-center justify-center text-blue-200 font-bold">{currentUser.avatar}</div>
+                <div><div className="text-sm font-bold">{currentUser.name}</div><div className="text-xs text-blue-300 capitalize">{currentUser.role.replace('_', ' ')}</div></div>
+              </div>
+              <button onClick={handleLogout} className="w-full flex items-center justify-center gap-2 py-3 bg-blue-900/40 hover:bg-red-500/80 text-blue-200 hover:text-white rounded-xl text-xs font-bold transition-colors"><LogOut size={14} /> Đăng Xuất</button>
+            </div>
+          </aside>
+
+          {/* MAIN CONTENT */}
+          <main className="flex-1 relative overflow-y-auto h-screen bg-[#f8f9fa]">
+            <div className="max-w-7xl mx-auto p-6 md:p-10 lg:p-12">
+
+              {/* --- DASHBOARD --- */}
+              {activeTab === 'dashboard' && (
+                <div className="space-y-12 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="bg-white rounded-3xl p-8 md:p-12 shadow-sm border border-slate-100 relative overflow-hidden">
+                    <div className="relative z-10 max-w-2xl">
+                      <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-50 text-[#102d62] text-xs font-bold mb-6 border border-blue-100"><span className="w-2 h-2 rounded-full bg-[#01ccff]"></span>PARTNER FOR SMEs & B2B</div>
+                      <h1 className="text-4xl md:text-5xl font-extrabold text-[#102d62] leading-tight mb-6">Chào mừng trở lại,<br /><span className="text-transparent bg-clip-text bg-gradient-to-r from-[#0830bd] to-[#01ccff]">{currentUser.name}</span></h1>
+                      <p className="text-lg text-slate-600 mb-8 leading-relaxed">
+                        {currentUser.role === 'admin' && "Quản trị viên hệ thống - Toàn quyền truy cập."}
+                        {currentUser.role === 'brand_owner' && "Quản lý thương hiệu MOODBIZ Agency."}
+                        {currentUser.role === 'content_creator' && `Bạn đang có quyền truy cập ${availableBrands.length} thương hiệu.`}
+                      </p>
+                    </div>
+                  </div>
+                  <div><SectionHeader title="Con Số Đạt Được" subtitle="Dấu ấn phát triển" /><div className="grid grid-cols-2 md:grid-cols-4 gap-6">{COMPANY_STATS.map((stat, idx) => <StatCard key={idx} {...stat} />)}</div></div>
+                </div>
+              )}
+
+              {/* --- GENERATOR --- */}
+              {activeTab === 'generator' && (
+                <div className="animate-in fade-in h-full flex flex-col">
+                  <div className="flex justify-between items-end mb-8">
+                    <div><h1 className="text-3xl font-extrabold text-[#102d62] mb-2">Content Generator</h1><p className="text-slate-500">Tạo nội dung Marketing chuẩn giọng văn</p></div>
+                    <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white rounded-full border border-slate-100 text-xs font-bold text-[#102d62]"><Sparkles size={14} className="text-[#01ccff]" /> Gemini Powered</div>
+                  </div>
+                  <div className="grid lg:grid-cols-12 gap-8 flex-1">
+                    <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+                      <div className="space-y-6 flex-1">
+                        {/* BRAND SELECTOR */}
+                        <div>
+                          <label className="block text-sm font-bold text-[#102d62] mb-2">Chọn Thương Hiệu</label>
+                          <BrandSelector availableBrands={availableBrands} selectedBrandId={selectedBrandId} onChange={setSelectedBrandId} disabled={isGenerating} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-[#102d62] mb-2">Chủ đề bài viết</label>
+                          <input className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#01ccff] outline-none font-medium" placeholder="VD: Giải pháp SEO cho B2B..." value={genTopic} onChange={e => setGenTopic(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-[#102d62] mb-2">Kênh đăng tải</label>
+                          <select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#01ccff] outline-none font-medium text-slate-600" value={genPlatform} onChange={e => setGenPlatform(e.target.value)}>
+                            <option>Facebook Post</option><option>LinkedIn Article</option><option>Email Marketing</option><option>Blog Post</option>
+                          </select>
+                        </div>
+                      </div>
+                      <div className="mt-8">
+                        <button onClick={handleGenerate} disabled={isGenerating || !genTopic} className="w-full py-4 bg-[#102d62] text-white rounded-xl font-bold hover:bg-blue-900 transition-all flex justify-center items-center gap-2 disabled:opacity-70">
+                          {isGenerating ? <RefreshCw className="animate-spin" /> : <Sparkles size={18} />} {isGenerating ? 'Đang viết...' : 'Tạo Nội Dung'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="lg:col-span-7">
+                      {genResult ? (
+                        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 h-full flex flex-col animate-in fade-in">
+                          <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-100">
+                            <h3 className="font-bold text-[#102d62] flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-[#01ccff]"></span> Kết Quả</h3>
+                            <button onClick={() => handleCopy(genResult)} className="text-slate-400 hover:text-[#01ccff]"><Copy size={18} /></button>
+                          </div>
+                          <div className="prose prose-sm max-w-none text-slate-600 leading-relaxed whitespace-pre-wrap flex-1 overflow-y-auto max-h-[600px]">{genResult}</div>
+                        </div>
+                      ) : (
+                        <div className="h-full bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 p-12">
+                          <div className="w-16 h-16 bg-white rounded-full shadow-sm flex items-center justify-center mb-4"><Sparkles size={32} className="text-slate-300" /></div>
+                          <p className="font-medium">Nội dung được tạo sẽ hiển thị ở đây</p>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* --- TAB: AUDITOR --- */}
+              {activeTab === 'auditor' && (
+                <div className="animate-in fade-in h-full flex flex-col">
+                  <div className="flex justify-between items-end mb-8">
+                    <div><h1 className="text-3xl font-extrabold text-[#102d62] mb-2">Voice Auditor</h1><p className="text-slate-500">Kiểm tra tính nhất quán với Brand Voice</p></div>
+                    <div className="hidden md:flex items-center gap-2 px-4 py-2 bg-white rounded-full border border-slate-100 text-xs font-bold text-[#102d62]"><Activity size={14} className="text-[#01ccff]" /> AI Auditor</div>
+                  </div>
+                  <div className="grid lg:grid-cols-12 gap-8 flex-1">
+                    <div className="lg:col-span-5 bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col">
+                      <div className="flex-1 space-y-4">
+                        <div>
+                          <label className="block text-sm font-bold text-[#102d62] mb-2">Thương hiệu cần kiểm tra</label>
+                          <BrandSelector availableBrands={availableBrands} selectedBrandId={selectedBrandId} onChange={setSelectedBrandId} disabled={isAuditing} />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-bold text-[#102d62] mb-2">Văn bản đầu vào</label>
+                          <textarea className="w-full h-[300px] p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm focus:ring-2 focus:ring-[#01ccff] outline-none resize-none font-medium" placeholder="Dán nội dung bài viết, email vào đây..." value={auditText} onChange={e => setAuditText(e.target.value)} />
+                        </div>
+                      </div>
+                      <div className="mt-6">
+                        <button onClick={handleAudit} disabled={isAuditing || !auditText} className="w-full py-4 bg-white border-2 border-[#102d62] text-[#102d62] rounded-xl font-bold hover:bg-blue-50 flex justify-center items-center gap-2 disabled:opacity-50">
+                          {isAuditing ? <RefreshCw className="animate-spin" /> : <Search size={18} />} {isAuditing ? 'Đang phân tích...' : 'Audit Content'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="lg:col-span-7">
+                      {auditResult ? (
+                        <div className="bg-white rounded-2xl shadow-xl border border-slate-100 overflow-hidden animate-in fade-in h-full flex flex-col">
+                          {/* Header Report */}
+                          <div className="bg-[#102d62] p-8 text-white flex justify-between items-center relative overflow-hidden shrink-0">
+                            <div className="absolute right-0 top-0 h-full w-1/3 bg-gradient-to-l from-[#01ccff]/20 to-transparent"></div>
+                            <div className="relative z-10">
+                              <div className="text-xs text-[#01ccff] font-bold tracking-widest uppercase mb-2">Audit Report for</div>
+                              <h2 className="text-2xl font-bold">{brands.find(b => b.id === selectedBrandId)?.name}</h2>
+                            </div>
+                            <div className="relative z-10 text-right">
+                              <div className="text-6xl font-extrabold tracking-tighter" style={{ color: auditResult.overall_score >= 80 ? '#4ade80' : '#fbbf24' }}>{auditResult.overall_score}</div>
+                              <div className="text-xs opacity-70">/ 100 Score</div>
+                            </div>
+                          </div>
+
+                          <div className="p-8 space-y-8 overflow-y-auto flex-1 max-h-[600px]">
+                            {/* Summary */}
+                            {auditResult.summary && <div className="bg-blue-50 p-6 rounded-xl border-l-4 border-[#01ccff]"><h4 className="text-xs font-bold text-[#102d62] uppercase tracking-wider mb-2">Tổng quan</h4><p className="text-[#102d62] font-medium">{auditResult.summary}</p></div>}
+
+                            {/* 1. Brand Personality */}
+                            {auditResult.brand_personality_assessment && (
+                              <div>
+                                <h4 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><span className="bg-[#102d62] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">1</span> Tính cách thương hiệu</h4>
+                                <div className={`p-4 rounded-xl border ${auditResult.brand_personality_assessment.is_compliant ? 'bg-green-50 border-green-200' : 'bg-orange-50 border-orange-200'}`}>
+                                  <div className="flex items-center gap-2 mb-2 font-bold">
+                                    {auditResult.brand_personality_assessment.is_compliant ? <CheckCircle className="text-green-600" size={20} /> : <AlertCircle className="text-orange-600" size={20} />}
+                                    <span className={auditResult.brand_personality_assessment.is_compliant ? 'text-green-800' : 'text-orange-800'}>{auditResult.brand_personality_assessment.is_compliant ? 'Tuân thủ tốt' : 'Cần cải thiện'}</span>
+                                  </div>
+                                  <p className="text-sm text-slate-700 mb-3">{auditResult.brand_personality_assessment.detailed_comment}</p>
+                                  <div className="flex flex-wrap gap-2">
+                                    {auditResult.brand_personality_assessment.traits_matched?.map((t, i) => <span key={i} className="px-2 py-1 bg-white/60 rounded text-xs font-bold text-slate-600 border border-slate-200 flex items-center gap-1"><Check size={10} /> {t}</span>)}
+                                    {auditResult.brand_personality_assessment.traits_missing?.map((t, i) => <span key={i} className="px-2 py-1 bg-white/60 rounded text-xs font-bold text-slate-400 border border-slate-200 dashed flex items-center gap-1"><X size={10} /> {t}</span>)}
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 2. Brand Voice */}
+                            {auditResult.brand_voice_assessment && (
+                              <div>
+                                <h4 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><span className="bg-[#102d62] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">2</span> Giọng văn thương hiệu</h4>
+                                <div className="grid gap-3">
+                                  <div className="flex justify-between p-3 bg-white border border-slate-100 rounded-lg"><span className="text-sm font-bold text-slate-600">Tone</span><span className="text-sm font-bold text-[#102d62]">{auditResult.brand_voice_assessment.tone_quality}</span></div>
+                                  <div className="flex justify-between p-3 bg-white border border-slate-100 rounded-lg"><span className="text-sm font-bold text-slate-600">Conciseness</span><span className="text-sm font-bold text-[#102d62]">{auditResult.brand_voice_assessment.conciseness}</span></div>
+                                  <div className="p-3 bg-slate-50 rounded-lg text-sm text-slate-600 italic border border-slate-100">"{auditResult.brand_voice_assessment.detailed_comment}"</div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 3. Issues */}
+                            {auditResult.identified_issues && (
+                              <div>
+                                <h4 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><span className="bg-[#102d62] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">3</span> Vấn đề phát hiện</h4>
+                                <div className="border border-slate-200 rounded-xl overflow-hidden">
+                                  <table className="w-full text-sm">
+                                    <thead className="bg-slate-50 text-[#102d62] font-bold border-b border-slate-200"><tr><th className="p-4 text-left">Vấn đề</th><th className="p-4 text-left">Lý do</th><th className="p-4 text-left">Đề xuất</th></tr></thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                      {auditResult.identified_issues.map((issue, i) => (
+                                        <tr key={i} className="hover:bg-slate-50">
+                                          <td className="p-4"><div className="text-red-500 font-medium line-through decoration-red-300">{issue.problematic_text}</div><div className="text-xs text-slate-400 mt-1 uppercase">{issue.issue_type}</div></td>
+                                          <td className="p-4 text-slate-600">{issue.reason}</td>
+                                          <td className="p-4 font-bold text-[#102d62]">{issue.suggestion}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 4. Rewrite */}
+                            {auditResult.rewritten_text && (
+                              <div className="mt-8 pt-8 border-t border-slate-100">
+                                <h4 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><span className="bg-[#102d62] text-white w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold">4</span> Phiên bản tối ưu</h4>
+                                <div className="bg-[#f8f9fa] p-6 rounded-xl border border-slate-200 text-slate-700 italic leading-relaxed relative group">
+                                  <button onClick={() => handleCopy(auditResult.rewritten_text)} className="absolute top-4 right-4 p-2 bg-white rounded-lg shadow-sm text-slate-400 hover:text-[#01ccff] opacity-0 group-hover:opacity-100 transition-opacity"><Copy size={16} /></button>
+                                  "{auditResult.rewritten_text}"
+                                </div>
+                              </div>
+                            )}
+
+                            {/* 5. Tips */}
+                            {auditResult.improvement_tips && <div className="bg-yellow-50 p-6 rounded-xl border border-yellow-100"><h4 className="text-sm font-bold text-yellow-800 uppercase tracking-wider mb-3 flex items-center gap-2"><Lightbulb size={16} /> Tips cải thiện</h4><ul className="list-disc pl-5 space-y-1 text-sm text-yellow-900">{auditResult.improvement_tips.map((tip, i) => <li key={i}>{tip}</li>)}</ul></div>}
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="h-full bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-slate-400 p-12"><BarChart2 size={32} className="text-slate-300 mb-4" /><p className="font-medium">Kết quả phân tích sẽ hiển thị ở đây</p></div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* --- TAB: BRANDS (ADMIN ONLY) --- */}
+              {activeTab === 'brands' && currentUser.role === 'admin' && (
+                <div className="animate-in fade-in max-w-5xl mx-auto pb-20">
+                  <div className="flex items-center justify-between mb-8">
+                    <div><h1 className="text-3xl font-extrabold text-[#102d62] mb-2">Quản lý Brand</h1><p className="text-slate-500">Thêm và cấu hình các Brand trong hệ thống</p></div>
+                    <button onClick={handleAddBrand} className="px-6 py-3 bg-[#102d62] text-white rounded-xl font-bold hover:bg-blue-900 flex items-center gap-2 shadow-lg"><PlusCircle size={20} /> Thêm Brand Mới</button>
+                  </div>
+                  <div className="grid gap-6">
+                    {brands.map(brand => (
+                      <div key={brand.id} className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex justify-between items-start">
+                        <div className="flex-1">
+                          <h3 className="text-xl font-bold text-[#102d62] flex items-center gap-2 mb-2"><Building2 size={20} className="text-[#01ccff]" /> {brand.name}</h3>
+                          <div className="text-xs text-slate-400 font-mono mb-4">ID: {brand.id}</div>
+                          <div className="grid grid-cols-2 gap-8 text-sm text-slate-600">
+                            <div><span className="font-bold block mb-1">Personality:</span> <p className="line-clamp-2">{brand.personality}</p></div>
+                            <div><span className="font-bold block mb-1">Voice:</span> <p className="line-clamp-2">{brand.voice}</p></div>
+                          </div>
+                        </div>
+                        <div className="flex gap-2 ml-4">
+                          <button onClick={() => handleEditBrand(brand)} className="p-2 text-blue-600 hover:bg-blue-50 rounded-lg"><Edit3 size={20} /></button>
+                          <button onClick={() => handleDeleteBrand(brand.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={20} /></button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* --- TAB: GENERATIONS HISTORY (ADMIN ONLY) --- */}
+              {activeTab === 'generations' && currentUser.role === 'admin' && (
+                <div className="animate-in fade-in max-w-6xl mx-auto pb-20">
+                  <div className="flex items-center justify-between mb-8">
+                    <div>
+                      <h1 className="text-3xl font-extrabold text-[#102d62] mb-2">
+                        Lịch sử nội dung AI
+                      </h1>
+                      <p className="text-slate-500">
+                        Theo dõi các lần generator đã chạy (tối đa 100 bản ghi gần nhất)
+                      </p>
+                    </div>
+                  </div>
+
+                  {!generationsLoaded ? (
+                    <div className="flex items-center justify-center py-20 text-slate-400">
+                      Đang tải lịch sử...
+                    </div>
+                  ) : generations.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-20 text-slate-400 bg-white rounded-2xl border border-slate-200">
+                      <FileText size={32} className="mb-3 opacity-40" />
+                      <p>Chưa có bản ghi nào.</p>
+                    </div>
+                  ) : (
+                    <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-xs font-bold text-slate-600 uppercase tracking-wide">
+                          <tr>
+                            <th className="px-4 py-3 text-left">Thời gian</th>
+                            <th className="px-4 py-3 text-left">Brand</th>
+                            <th className="px-4 py-3 text-left">Platform</th>
+                            <th className="px-4 py-3 text-left">Topic</th>
+                            <th className="px-4 py-3 text-left">User</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {generations.map((g) => {
+                            const brandName =
+                              brands.find((b) => b.id === g.brand_id)?.name ||
+                              g.brand_id ||
+                              '-';
+                            const isSelected = selectedGeneration?.id === g.id;
+
+                            return (
+                              <tr
+                                key={g.id}
+                                className={
+                                  "hover:bg-slate-50 cursor-pointer " +
+                                  (isSelected ? "bg-slate-50" : "")
+                                }
+                                onClick={() => setSelectedGeneration(g)}
+                              >
+                                <td className="px-4 py-3 text-slate-600">
+                                  {formatTimestamp(g.timestamp)}
+                                </td>
+                                <td className="px-4 py-3 text-slate-700 font-medium">
+                                  {brandName}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {g.input_data?.platform || ''}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {g.input_data?.topic || ''}
+                                </td>
+                                <td className="px-4 py-3 text-slate-600">
+                                  {g.user_name || g.user_id || ''}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* --- TAB: SETTINGS (RBAC Filtered) --- */}
+              {activeTab === 'settings' && (currentUser.role === 'admin' || currentUser.role === 'brand_owner') && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 max-w-5xl mx-auto pb-20">
+                  <div className="flex items-center justify-between mb-8">
+                    <div><h1 className="text-3xl font-extrabold text-[#102d62] mb-2">Cấu hình hệ thống</h1><p className="text-slate-500">Quản lý Brand Voice & API</p></div>
+                    <div className="flex gap-3"><button onClick={resetConfig} className="px-4 py-2 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-lg flex items-center gap-2"><RotateCcw size={16} /> Reset</button><button onClick={saveConfig} className="px-6 py-2 bg-[#102d62] text-white rounded-lg font-bold hover:bg-blue-900 flex items-center gap-2"><Save size={18} /> Lưu cấu hình</button></div>
+                  </div>
+                  {saveStatus && <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-xl border border-green-100 flex items-center gap-2 font-bold"><CheckCircle size={20} /> {saveStatus}</div>}
+
+                  <div className="grid gap-8">
+                    {/* Admin Only Section */}
+                    {currentUser.role === 'admin' && (
+                      <>
+                        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+                          <h3 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><Key size={20} /> API Key (Admin Only)</h3>
+                          <input type="password" className="w-full p-4 bg-slate-50 border border-slate-200 rounded-xl text-sm font-mono" placeholder="Google Gemini API Key..." value={apiKey} onChange={(e) => { setApiKey(e.target.value); localStorage.setItem('moodbiz_api_key', e.target.value); }} />
+                        </div>
+                        <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+                          <h3 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><Settings size={20} /> System Prompts (Admin Only)</h3>
+                          <div className="grid md:grid-cols-2 gap-6">
+                            <div><label className="block text-xs font-bold text-slate-400 mb-2">GENERATOR PROMPT</label><textarea className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" value={systemPrompts.generator} onChange={e => setSystemPrompts({ ...systemPrompts, generator: e.target.value })} /></div>
+                            <div><label className="block text-xs font-bold text-slate-400 mb-2">AUDITOR PROMPT</label><textarea className="w-full h-40 p-4 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono" value={systemPrompts.auditor} onChange={e => setSystemPrompts({ ...systemPrompts, auditor: e.target.value })} /></div>
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {/* Brand Config (Admin sees all, Owner sees own) */}
+                    <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100">
+                      <h3 className="text-lg font-bold text-[#102d62] mb-4 flex items-center gap-2"><UserCheck size={20} /> Cấu hình thương hiệu</h3>
+                      <div className="space-y-8">
+                        {brands.map((brand, index) => {
+                          // RBAC: Owner only sees ownedBrand
+                          if (currentUser.role === 'brand_owner' && brand.id !== currentUser.ownedBrandId) return null;
+                          return (
+                            <div key={brand.id} className="p-6 border border-slate-200 rounded-xl bg-slate-50/50">
+                              <div className="mb-4 flex items-center justify-between"><h4 className="font-bold text-[#102d62] flex items-center gap-2"><Building2 size={18} /> {brand.name}</h4></div>
+                              <div className="grid md:grid-cols-2 gap-6">
+                                <div><label className="block text-xs font-bold text-slate-500 mb-1">Personality (Tính cách)</label><textarea className="w-full h-32 p-3 bg-white border border-slate-200 rounded-lg text-sm" value={brand.personality} onChange={(e) => { const newBrands = [...brands]; newBrands[index].personality = e.target.value; setBrands(newBrands); }} /></div>
+                                <div><label className="block text-xs font-bold text-slate-500 mb-1">Voice (Giọng văn)</label><textarea className="w-full h-32 p-3 bg-white border border-slate-200 rounded-lg text-sm" value={brand.voice} onChange={(e) => { const newBrands = [...brands]; newBrands[index].voice = e.target.value; setBrands(newBrands); }} /></div>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* --- TAB: GUIDELINES --- */}
+              {activeTab === 'guidelines' && <div className="h-[80vh] flex items-center justify-center text-slate-400 bg-white rounded-3xl border border-slate-200 border-dashed"><div className="text-center"><BookOpen size={48} className="mx-auto mb-4 opacity-20" /><p>Khu vực hiển thị Slide Brand Guidelines</p></div></div>}
+
+            </div>
+          </main>
+
+          {/* BRAND MODAL */}
+          <BrandModal isOpen={isBrandModalOpen} onClose={() => setIsBrandModalOpen(false)} onSave={handleSaveBrand} brand={editingBrand} />
+        </div>
+      );
+    };
+
+    const root = createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+
+</html>
