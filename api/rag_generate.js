@@ -2,11 +2,22 @@
 const fetch = require("node-fetch");
 
 module.exports = async function handler(req, res) {
-  // CORS cho Firebase Hosting
-  res.setHeader("Access-Control-Allow-Origin", "https://moodbiz---rbac.web.app");
+  // CORS headers – cho phép cả Firebase site và localhost để test
+  const allowedOrigin = req.headers.origin;
+  const whitelist = [
+    "https://moodbiz---rbac.web.app",
+    "http://localhost:5000",
+    "http://localhost:3000"
+  ];
+  if (whitelist.includes(allowedOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
+  }
+
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+  res.setHeader("Access-Control-Max-Age", "86400");
 
+  // Trả lời preflight
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
@@ -17,23 +28,21 @@ module.exports = async function handler(req, res) {
 
   try {
     const { brand, topic, platform, userText, systemPrompt } = req.body || {};
-
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
     }
 
-    // Tạm thời: chưa có retrieval, chỉ build prompt “giàu context”
     const finalPrompt = `
-Bạn là trợ lý nội dung cho thương hiệu ${brand.name}.
-Tính cách: ${brand.personality}
-Giọng văn: ${brand.voice}
-Kênh đăng: ${platform}
-Chủ đề: ${topic}
+Bạn là trợ lý nội dung cho thương hiệu ${brand?.name || ""}.
+Tính cách: ${brand?.personality || ""}
+Giọng văn: ${brand?.voice || ""}
+Kênh đăng: ${platform || ""}
+Chủ đề: ${topic || ""}
 
 Yêu cầu chi tiết: ${userText || ""}
 
-Hãy viết nội dung đúng Brand Voice, rõ ràng, súc tích.
+${systemPrompt || ""}
 `;
 
     const response = await fetch(
