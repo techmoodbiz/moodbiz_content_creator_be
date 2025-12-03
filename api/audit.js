@@ -2,7 +2,7 @@
 const fetch = require('node-fetch');
 
 module.exports = async function handler(req, res) {
-  // CORS giống rag-generate
+  // CORS - giống rag-generate
   const allowedOrigin = req.headers.origin;
   const whitelist = [
     'https://moodbiz---rbac.web.app',
@@ -23,25 +23,28 @@ module.exports = async function handler(req, res) {
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Only POST allowed' });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
+    // ✅ ĐÚNG: Lấy cả brand VÀ prompt
     const { brand, prompt } = req.body;
 
-    if (!prompt) {
-      return res.status(400).json({ error: 'Prompt is required' });
+    // Validate
+    if (!prompt || typeof prompt !== 'string') {
+      console.error('Invalid prompt:', prompt);
+      return res.status(400).json({ error: 'Prompt is required and must be a string' });
     }
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      console.error('GEMINI_API_KEY not found');
-      return res.status(500).json({ error: 'Missing GEMINI_API_KEY' });
+      console.error('GEMINI_API_KEY not found in environment');
+      return res.status(500).json({ error: 'API key not configured' });
     }
 
+    // ✅ SỬ DỤNG MODEL ĐÚNG (gemini-2.0-flash-exp giống generator)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`;
 
-    // BỎ responseMimeType - để Gemini trả về text tự nhiên
     const requestBody = {
       contents: [{
         parts: [{ text: prompt }]
@@ -52,7 +55,9 @@ module.exports = async function handler(req, res) {
       }
     };
 
-    console.log('Calling Gemini API for audit...');
+    console.log('🔍 Calling Gemini API for audit...');
+    console.log('📝 Prompt length:', prompt.length);
+
     const response = await fetch(geminiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -61,9 +66,9 @@ module.exports = async function handler(req, res) {
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Gemini API error:', errorText);
+      console.error('❌ Gemini API error:', response.status, errorText);
       return res.status(response.status).json({
-        error: 'Gemini API error',
+        error: `Gemini API error: ${response.status}`,
         details: errorText
       });
     }
@@ -71,25 +76,32 @@ module.exports = async function handler(req, res) {
     const data = await response.json();
 
     if (data.error) {
-      console.error('Gemini error (audit):', data.error);
+      console.error('❌ Gemini returned error:', data.error);
       return res.status(500).json({
         error: data.error.message || 'Gemini error'
       });
     }
 
-    // LẤY TEXT TRỰC TIẾP - không parse JSON
+    // ✅ SỬA: Thêm [0] vào đúng chỗ
     const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    console.log('AUDIT_RAW_TEXT:', textResult.substring(0, 500)); // Log 500 ký tự đầu
+    if (!textResult) {
+      console.error('❌ No text result from Gemini');
+      return res.status(500).json({ error: 'No response from AI' });
+    }
 
-    // TRẢ VỀ TEXT NGUYÊN BẢN
+    console.log('✅ AUDIT_SUCCESS - Text length:', textResult.length);
+    console.log('📄 Preview:', textResult.substring(0, 200));
+
+    // ✅ TRẢ VỀ TEXT THÔI (frontend sẽ tự parse)
     return res.status(200).json({
       result: textResult,
       success: true
     });
 
   } catch (e) {
-    console.error('ERR/audit:', e);
+    console.error('❌ ERR/audit:', e.message);
+    console.error('Stack:', e.stack);
     return res.status(500).json({
       error: 'Server error',
       message: e.message
