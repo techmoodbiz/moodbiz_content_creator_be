@@ -101,7 +101,7 @@ module.exports = async function handler(req, res) {
             name,
             email,
             role,
-            ownedBrandId: role === "brand_owner" ? ownedBrandId : null,
+            ownedBrandIds: role === "brand_owner" ? ownedBrandIds || [] : [],
             assignedBrandIds: role === "content_creator" ? assignedBrandIds || [] : [],
             createdAt: admin.firestore.FieldValue.serverTimestamp(),
             createdBy: currentUser.uid,
