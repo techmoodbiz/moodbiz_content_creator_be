@@ -42,8 +42,8 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: 'API key not configured' });
     }
 
-    // ✅ SỬ DỤNG MODEL ĐÚNG (gemini-2.5-flash-preview-09-2025 giống rag-generate và generate)
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    // ✅ SỬ DỤNG MODEL ỔN ĐỊNH (gemini-1.5-flash - ít bị rate limit hơn)
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
     const requestBody = {
       contents: [{
