@@ -27,7 +27,7 @@ module.exports = async function handler(req, res) {
         "https://moodbiz---rbac.web.app",
         "http://localhost:3000",
         "http://localhost:5000",
-        "http://127.0.0.1:5500", // Live Server
+        "http://127.0.0.1:5500",
     ];
 
     if (allowedOrigins.includes(origin)) {
@@ -41,7 +41,6 @@ module.exports = async function handler(req, res) {
     );
     res.setHeader("Access-Control-Max-Age", "86400");
 
-    // Preflight
     if (req.method === "OPTIONS") {
         return res.status(200).end();
     }
@@ -51,7 +50,6 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        // ===== AUTH & PERMISSION =====
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({ error: "Unauthorized" });
@@ -74,7 +72,6 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: "Permission denied" });
         }
 
-        // ===== VALIDATE BODY =====
         const { name, email, password, role, ownedBrandId, assignedBrandIds } = req.body;
 
         if (!name || !email || !password) {
@@ -93,7 +90,6 @@ module.exports = async function handler(req, res) {
                 .json({ error: "Brand Owner can only create Content Creator" });
         }
 
-        // ===== CREATE USER IN AUTH =====
         const newUser = await auth.createUser({
             email,
             password,
@@ -101,7 +97,6 @@ module.exports = async function handler(req, res) {
             emailVerified: false,
         });
 
-        // ===== SAVE METADATA IN FIRESTORE =====
         await db.collection("users").doc(newUser.uid).set({
             name,
             email,
@@ -116,12 +111,7 @@ module.exports = async function handler(req, res) {
             success: true,
             message: `Created user ${name} successfully`,
             userId: newUser.uid,
-            user: {
-                uid: newUser.uid,
-                email,
-                name,
-                role,
-            },
+            user: { uid: newUser.uid, email, name, role },
         });
     } catch (error) {
         console.error("Error creating user:", error);
