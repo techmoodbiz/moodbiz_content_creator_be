@@ -62,14 +62,30 @@ module.exports = async function handler(req, res) {
         .json({ error: data.error.message || "Gemini error" });
     }
 
-    const text =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+    // Log để debug
+    console.log("AUDIT_RAW_TEXT:", text);
+
+    // Làm sạch text trước khi parse
+    text = text.trim();
+
+    // Loại bỏ markdown code blocks nếu có
+    if (text.startsWith("```")) {
+      text = text.replace(/^```json\s*/i, "").replace(/^```/i, "");
+      text = text.replace(/```\s*$/, "").trim();
+    }
+
+    // Loại bỏ control characters không hợp lệ trong JSON (0x00-0x1F trừ \n\r\t)
+    // Giữ lại \n \r \t vì chúng hợp lệ trong JSON string
+    text = text.replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, " ");
 
     let result;
     try {
       result = JSON.parse(text);
     } catch (e) {
-      console.error("ERR_parse_audit:", e, text);
+      console.error("ERR_parse_audit:", e);
+      console.error("Cleaned text:", text);
       return res
         .status(500)
         .json({ error: "Invalid JSON returned from Gemini" });
