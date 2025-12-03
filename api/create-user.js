@@ -1,6 +1,7 @@
 // api/create-user.js
 const admin = require("firebase-admin");
 
+// ===== INIT FIREBASE ADMIN =====
 if (!admin.apps.length) {
     try {
         admin.initializeApp({
@@ -18,6 +19,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const auth = admin.auth();
 
+// ===== HANDLER =====
 module.exports = async function handler(req, res) {
     // ===== CORS =====
     const origin = req.headers.origin;
@@ -49,7 +51,7 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        // Lấy token từ header để verify user hiện tại
+        // ===== AUTH & PERMISSION =====
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith("Bearer ")) {
             return res.status(401).json({ error: "Unauthorized" });
@@ -57,7 +59,6 @@ module.exports = async function handler(req, res) {
 
         const idToken = authHeader.split("Bearer ")[1];
 
-        // Verify token
         let currentUser;
         try {
             const decodedToken = await auth.verifyIdToken(idToken);
@@ -66,14 +67,14 @@ module.exports = async function handler(req, res) {
             return res.status(401).json({ error: "Invalid token" });
         }
 
-        // Kiểm tra quyền
         const currentUserDoc = await db.collection("users").doc(currentUser.uid).get();
         const currentUserData = currentUserDoc.data();
+
         if (!currentUserData || !["admin", "brand_owner"].includes(currentUserData.role)) {
             return res.status(403).json({ error: "Permission denied" });
         }
 
-        // Lấy data user mới
+        // ===== VALIDATE BODY =====
         const { name, email, password, role, ownedBrandId, assignedBrandIds } = req.body;
 
         if (!name || !email || !password) {
@@ -86,14 +87,13 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: "Invalid role" });
         }
 
-        // Brand Owner chỉ được tạo Content Creator
         if (currentUserData.role === "brand_owner" && role !== "content_creator") {
             return res
                 .status(403)
                 .json({ error: "Brand Owner can only create Content Creator" });
         }
 
-        // Tạo user trong Firebase Auth
+        // ===== CREATE USER IN AUTH =====
         const newUser = await auth.createUser({
             email,
             password,
@@ -101,7 +101,7 @@ module.exports = async function handler(req, res) {
             emailVerified: false,
         });
 
-        // Lưu metadata vào Firestore
+        // ===== SAVE METADATA IN FIRESTORE =====
         await db.collection("users").doc(newUser.uid).set({
             name,
             email,
