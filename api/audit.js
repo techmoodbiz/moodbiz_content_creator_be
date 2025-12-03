@@ -1,5 +1,4 @@
 // api/audit.js
-
 const fetch = require("node-fetch");
 
 module.exports = async function handler(req, res) {
@@ -28,13 +27,15 @@ module.exports = async function handler(req, res) {
   }
 
   try {
+    // LẤY ĐÚNG FIELD TỪ REQUEST BODY (giống rag-generate)
     const { brand, prompt } = req.body || {};
+
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
     }
 
-    // Prompt cho Auditor (dùng prompt hệ thống bạn đã định nghĩa)
+    // PROMPT CUỐI CÙNG (frontend đã build sẵn)
     const finalPrompt = prompt || "";
 
     const response = await fetch(
@@ -64,28 +65,31 @@ module.exports = async function handler(req, res) {
 
     let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
-    // Log để debug
-    console.log("AUDIT_RAW_TEXT:", text);
+    // LOG ĐỂ DEBUG
+    console.log("AUDIT_RAW_TEXT:", text.substring(0, 200));
 
-    // Làm sạch text trước khi parse
+    // LÀM SẠCH TEXT
     text = text.trim();
 
-    // Loại bỏ markdown code blocks nếu có
+    // Nếu model trả về dạng ```json ... ``` thì bỏ wrapper markdown đi
     if (text.startsWith("```")) {
-      text = text.replace(/^```json\s*/i, "").replace(/^```/i, "");
-      text = text.replace(/```\s*$/, "").trim();
+      text = text
+        // bỏ dòng mở ```json hoặc ``` + xuống dòng
+        .replace(/^```(?:json)?\s*/i, "")
+        // bỏ dòng đóng ```
+        .replace(/```\s*$/i, "")
+        .trim();
     }
 
-    // Loại bỏ control characters không hợp lệ trong JSON (0x00-0x1F trừ \n\r\t)
-    // Giữ lại \n \r \t vì chúng hợp lệ trong JSON string
+    // Loại bỏ control characters không hợp lệ (giữ lại \n \r \t)
     text = text.replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, " ");
 
     let result;
     try {
       result = JSON.parse(text);
-    } catch (e) {
-      console.error("ERR_parse_audit:", e);
-      console.error("Cleaned text:", text);
+    } catch (parseErr) {
+      console.error("ERR_parse_audit:", parseErr.message);
+      console.error("Cleaned text:", text.substring(0, 500));
       return res
         .status(500)
         .json({ error: "Invalid JSON returned from Gemini" });
