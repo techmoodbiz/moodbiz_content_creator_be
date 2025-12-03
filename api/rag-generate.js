@@ -7,7 +7,8 @@ module.exports = async function handler(req, res) {
   const whitelist = [
     "https://moodbiz---rbac.web.app",
     "http://localhost:5000",
-    "http://localhost:3000"
+    "http://localhost:3000",
+    "http://127.0.0.1:5500"
   ];
   if (whitelist.includes(allowedOrigin)) {
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
