@@ -27,7 +27,7 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // ✅ ĐÚNG: Lấy cả brand VÀ prompt
+    // Lấy brand & prompt
     const { brand, prompt } = req.body;
 
     // Validate
@@ -42,18 +42,17 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: 'API key not configured' });
     }
 
-    // ✅ DÙNG MODEL GIỐNG GENERATOR (gemini-2.5-flash-preview-09-2025)
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
     const requestBody = {
       contents: [{
-        parts: [{ text: prompt }]
+        parts: [{ text: prompt }],
       }],
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 8192,
-        responseMimeType: "application/json"  // ✅ BẮT BUỘC TRẢ VỀ JSON
-      }
+        responseMimeType: 'application/json', // Bắt buộc trả JSON
+      },
     };
 
     console.log('🔍 Calling Gemini API for audit...');
@@ -70,7 +69,7 @@ module.exports = async function handler(req, res) {
       console.error('❌ Gemini API error:', response.status, errorText);
       return res.status(response.status).json({
         error: `Gemini API error: ${response.status}`,
-        details: errorText
+        details: errorText,
       });
     }
 
@@ -79,11 +78,11 @@ module.exports = async function handler(req, res) {
     if (data.error) {
       console.error('❌ Gemini returned error:', data.error);
       return res.status(500).json({
-        error: data.error.message || 'Gemini error'
+        error: data.error.message || 'Gemini error',
       });
     }
 
-    // ✅ SỬA: Thêm [0] vào đúng chỗ
+    // Lấy text thô từ Gemini
     const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     if (!textResult) {
@@ -94,18 +93,38 @@ module.exports = async function handler(req, res) {
     console.log('✅ AUDIT_SUCCESS - Text length:', textResult.length);
     console.log('📄 Preview:', textResult.substring(0, 200));
 
-    // ✅ TRẢ VỀ TEXT THÔI (frontend sẽ tự parse)
+    // 👇 MỚI: backend cố gắng parse JSON trước
+    let parsed = null;
+    try {
+      const cleaned = textResult
+        .trim()
+        .replace(/```json?/gi, '')
+        .replace(/```/g, '')
+        .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
+      parsed = JSON.parse(cleaned);
+    } catch (parseErr) {
+      console.warn('⚠️ AUDIT JSON parse failed at BE:', parseErr.message);
+    }
+
+    // Nếu parse OK: trả luôn object cho FE dùng theo schema PROMPT
+    if (parsed && typeof parsed === 'object') {
+      return res.status(200).json({
+        result: parsed,
+        success: true,
+      });
+    }
+
+    // Fallback: trả lại text để FE tự xử lý như logic hiện tại
     return res.status(200).json({
       result: textResult,
-      success: true
+      success: true,
     });
-
   } catch (e) {
     console.error('❌ ERR/audit:', e.message);
     console.error('Stack:', e.stack);
     return res.status(500).json({
       error: 'Server error',
-      message: e.message
+      message: e.message,
     });
   }
 };
