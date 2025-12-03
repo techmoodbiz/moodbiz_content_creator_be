@@ -3,29 +3,24 @@
 const fetch = require("node-fetch");
 
 module.exports = async function handler(req, res) {
-  const origin = req.headers.origin;
-  const allowedOrigins = [
+  // CORS giống rag-generate
+  const allowedOrigin = req.headers.origin;
+  const whitelist = [
     "https://moodbiz---rbac.web.app",
-    "http://localhost:3000",
     "http://localhost:5000",
+    "http://localhost:3000",
     "http://127.0.0.1:5500",
   ];
 
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
+  if (whitelist.includes(allowedOrigin)) {
+    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    // CHO PHÉP Authorization
-    res.setHeader(
-      "Access-Control-Allow-Headers",
-      "Content-Type, Authorization"
-    );
+    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
     res.setHeader("Access-Control-Max-Age", "86400");
-  }
 
-  // Preflight
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    if (req.method === "OPTIONS") {
+      return res.status(200).end();
+    }
   }
 
   if (req.method !== "POST") {
@@ -33,34 +28,56 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    const { prompt } = req.body || {};
+    const { brand, prompt } = req.body || {};
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
       return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
     }
 
-    const resp = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey,
+    // Prompt cho Auditor (dùng prompt hệ thống bạn đã định nghĩa)
+    const finalPrompt = prompt || "";
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/" +
+      "gemini-2.5-flash-preview-09-2025:generateContent?key=" +
+      apiKey,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt || "" }] }],
-          generationConfig: { responseMimeType: "application/json" },
+          contents: [{ parts: [{ text: finalPrompt }] }],
+          generationConfig: {
+            responseMimeType: "application/json",
+          },
         }),
       }
     );
 
-    const data = await resp.json();
+    const data = await response.json();
+
     if (data.error) {
-      return res.status(500).json({ error: data.error.message });
+      console.error("Gemini error (audit):", data.error);
+      return res
+        .status(500)
+        .json({ error: data.error.message || "Gemini error" });
     }
 
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
-    const result = JSON.parse(text);
-    res.status(200).json({ result });
+    const text =
+      data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+
+    let result;
+    try {
+      result = JSON.parse(text);
+    } catch (e) {
+      console.error("ERR_parse_audit:", e, text);
+      return res
+        .status(500)
+        .json({ error: "Invalid JSON returned from Gemini" });
+    }
+
+    return res.status(200).json({ result });
   } catch (e) {
     console.error("ERR_audit:", e);
-    res.status(500).json({ error: "Server error" });
+    return res.status(500).json({ error: "Server error" });
   }
 };
