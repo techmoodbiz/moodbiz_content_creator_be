@@ -72,7 +72,7 @@ module.exports = async function handler(req, res) {
             return res.status(403).json({ error: "Permission denied" });
         }
 
-        const { name, email, password, role, ownedBrandId, assignedBrandIds } = req.body;
+        const { name, email, password, role, ownedBrandIds, assignedBrandIds } = req.body;
 
         if (!name || !email || !password) {
             return res
