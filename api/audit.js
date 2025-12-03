@@ -7,7 +7,8 @@ module.exports = async function handler(req, res) {
   const allowedOrigins = [
     "https://moodbiz---rbac.web.app",
     "http://localhost:3000",
-    "http://localhost:5000"
+    "http://localhost:5000",
+    "http://127.0.0.1:5500"
   ];
   if (allowedOrigins.includes(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
