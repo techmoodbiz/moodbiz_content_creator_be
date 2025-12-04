@@ -78,8 +78,15 @@ module.exports = async function handler(req, res) {
         const guideline = guidelineSnap.data();
 
         // 2. Download file từ Storage
-        const fileName = guideline.file_url.split('/').pop().split('?')[0];
-        const filePath = decodeURIComponent(fileName.replace(/.*\/o\//, ''));
+        // Parse file path từ signed URL
+        // URL format: https://storage.googleapis.com/.../o/brands%2F...%2Ffile.pdf?...
+        const urlMatch = guideline.file_url.match(/\/o\/([^?]+)/);
+        if (!urlMatch) {
+            return res.status(400).json({ error: 'Invalid file_url format' });
+        }
+
+        const filePath = decodeURIComponent(urlMatch[1]);
+        console.log('Downloading file from Storage:', filePath);
 
         const file = bucket.file(filePath);
         const [fileBuffer] = await file.download();
