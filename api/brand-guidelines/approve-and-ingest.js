@@ -2,7 +2,6 @@
 
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const pdfjsLib = require('pdfjs-dist');
 const mammoth = require('mammoth');
 
 // Khởi tạo Firebase Admin
@@ -90,7 +89,9 @@ module.exports = async function handler(req, res) {
         const fileType = guideline.file_type || '';
 
         if (fileType.includes('pdf')) {
-            // Sử dụng pdfjs-dist để parse PDF (serverless-compatible)
+            // Dynamic import vì pdfjs-dist v5 là ES Module
+            const pdfjsLib = await import('pdfjs-dist');
+
             const loadingTask = pdfjsLib.getDocument({
                 data: new Uint8Array(fileBuffer),
                 useSystemFonts: true,
