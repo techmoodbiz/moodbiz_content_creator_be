@@ -96,12 +96,16 @@ module.exports = async function handler(req, res) {
         const fileType = guideline.file_type || '';
 
         if (fileType.includes('pdf')) {
-            // Dynamic import vì pdfjs-dist v5 là ES Module
-            const pdfjsLib = await import('pdfjs-dist');
+            // Polyfill DOMMatrix đơn giản cho môi trường Node (tránh lỗi ReferenceError)
+            if (typeof global.DOMMatrix === 'undefined') {
+                global.DOMMatrix = class DOMMatrix { };
+            }
+
+            // Dùng legacy build cho Node.js
+            const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
 
             const loadingTask = pdfjsLib.getDocument({
                 data: new Uint8Array(fileBuffer),
-                useSystemFonts: true,
             });
             const pdfDocument = await loadingTask.promise;
 
@@ -109,10 +113,11 @@ module.exports = async function handler(req, res) {
             for (let i = 1; i <= pdfDocument.numPages; i++) {
                 const page = await pdfDocument.getPage(i);
                 const textContent = await page.getTextContent();
-                const pageText = textContent.items.map(item => item.str).join(' ');
+                const pageText = textContent.items.map((item) => item.str).join(' ');
                 textParts.push(pageText);
             }
             text = textParts.join('\n\n');
+
         } else if (
             fileType.includes('word') ||
             fileType.includes('document') ||
