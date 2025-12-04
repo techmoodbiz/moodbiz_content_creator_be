@@ -2,7 +2,7 @@
 
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
+const pdfjsLib = require('pdfjs-dist');
 const mammoth = require('mammoth');
 
 // Khởi tạo Firebase Admin
