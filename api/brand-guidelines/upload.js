@@ -13,7 +13,7 @@ if (!admin.apps.length) {
             private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
             client_email: process.env.FIREBASE_CLIENT_EMAIL,
         }),
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET, // vd: "moodbiz---rbac.appspot.com"
+        storageBucket: process.env.GOOGLE_STORAGE_BUCKET,
     });
 }
 
@@ -131,6 +131,7 @@ module.exports = async function handler(req, res) {
                     file_name: fileInfo.filename,
                     file_url: url,
                     file_type: fileInfo.mimeType || '',
+                    storage_path: uploadPath,
                     status: 'pending',
                     uploaded_by: fields.uploadedBy || null,
                     uploaded_role: fields.uploadedRole || null,
