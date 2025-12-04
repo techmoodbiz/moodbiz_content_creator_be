@@ -2,7 +2,7 @@
 
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
-const pdfParse = require('pdf-parse');
+const pdfjsLib = require('pdfjs-dist/legacy/build/pdf.js');
 const mammoth = require('mammoth');
 
 // Khởi tạo Firebase Admin
@@ -90,8 +90,21 @@ module.exports = async function handler(req, res) {
         const fileType = guideline.file_type || '';
 
         if (fileType.includes('pdf')) {
-            const pdfData = await pdfParse(fileBuffer);
-            text = pdfData.text;
+            // Sử dụng pdfjs-dist để parse PDF (serverless-compatible)
+            const loadingTask = pdfjsLib.getDocument({
+                data: new Uint8Array(fileBuffer),
+                useSystemFonts: true,
+            });
+            const pdfDocument = await loadingTask.promise;
+
+            const textParts = [];
+            for (let i = 1; i <= pdfDocument.numPages; i++) {
+                const page = await pdfDocument.getPage(i);
+                const textContent = await page.getTextContent();
+                const pageText = textContent.items.map(item => item.str).join(' ');
+                textParts.push(pageText);
+            }
+            text = textParts.join('\n\n');
         } else if (
             fileType.includes('word') ||
             fileType.includes('document') ||
