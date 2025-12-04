@@ -80,14 +80,14 @@ module.exports = async function handler(req, res) {
         // 2. Download file từ Storage
         // Parse file path từ signed URL
         // URL format: https://storage.googleapis.com/.../o/brands%2F...%2Ffile.pdf?...
-        const urlMatch = guideline.file_url.match(/\/o\/([^?]+)/);
-        if (!urlMatch) {
-            return res.status(400).json({ error: 'Invalid file_url format' });
+        // Use storage_path field directly
+        const filePath = guideline.storage_path;
+        if (!filePath) {
+            return res.status(400).json({
+                error: 'Missing storage_path. Please re-upload the file with updated backend.'
+            });
         }
-
-        const filePath = decodeURIComponent(urlMatch[1]);
         console.log('Downloading file from Storage:', filePath);
-
         const file = bucket.file(filePath);
         const [fileBuffer] = await file.download();
 
