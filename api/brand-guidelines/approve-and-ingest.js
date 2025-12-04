@@ -3,6 +3,7 @@
 const admin = require('firebase-admin');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
 
 // Khởi tạo Firebase Admin
 if (!admin.apps.length) {
@@ -96,28 +97,9 @@ module.exports = async function handler(req, res) {
         const fileType = guideline.file_type || '';
 
         if (fileType.includes('pdf')) {
-            // Polyfill DOMMatrix đơn giản cho môi trường Node (tránh lỗi ReferenceError)
-            if (typeof global.DOMMatrix === 'undefined') {
-                global.DOMMatrix = class DOMMatrix { };
-            }
-
-            // Dùng legacy build cho Node.js
-            const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs');
-
-            const loadingTask = pdfjsLib.getDocument({
-                data: new Uint8Array(fileBuffer),
-            });
-            const pdfDocument = await loadingTask.promise;
-
-            const textParts = [];
-            for (let i = 1; i <= pdfDocument.numPages; i++) {
-                const page = await pdfDocument.getPage(i);
-                const textContent = await page.getTextContent();
-                const pageText = textContent.items.map((item) => item.str).join(' ');
-                textParts.push(pageText);
-            }
-            text = textParts.join('\n\n');
-
+            // Dùng pdf-parse cho môi trường Node
+            const data = await pdfParse(fileBuffer);
+            text = data.text || '';
         } else if (
             fileType.includes('word') ||
             fileType.includes('document') ||
@@ -126,9 +108,9 @@ module.exports = async function handler(req, res) {
             const result = await mammoth.extractRawText({ buffer: fileBuffer });
             text = result.value;
         } else {
-            // CSV hoặc text-based
             text = fileBuffer.toString('utf-8');
         }
+
 
         // 4. Chunk text (split thành các đoạn ~800 chars với overlap)
         const chunks = chunkText(text, 800, 100);
