@@ -2,7 +2,7 @@
 
 const fetch = require('node-fetch');
 const admin = require('firebase-admin');
-const Busboy = require('busboy');
+const busboy = require('busboy');
 
 // Khởi tạo Firebase Admin (nếu chưa)
 if (!admin.apps.length) {
@@ -63,7 +63,7 @@ module.exports = async function handler(req, res) {
                 .json({ error: 'Content-Type must be multipart/form-data' });
         }
 
-        const bb = Busboy({ headers: req.headers });
+        const bb = busboy({ headers: req.headers });
 
         // Lưu field text + file buffer
         const fields = {};
