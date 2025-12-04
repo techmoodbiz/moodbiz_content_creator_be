@@ -57,8 +57,10 @@ module.exports = async function handler(req, res) {
             fields[fieldname] = val;
         });
 
-        // Lấy file
-        busboy.on('file', (fieldname, file, filename, encoding, mimetype) => {
+        // Lấy file - Busboy v1.x syntax
+        busboy.on('file', (fieldname, file, info) => {
+            const { filename, encoding, mimeType } = info;
+
             if (fieldname !== 'file') {
                 file.resume();
                 return;
@@ -74,7 +76,7 @@ module.exports = async function handler(req, res) {
             uploadFile = bucket.file(uploadPath);
 
             const stream = uploadFile.createWriteStream({
-                metadata: { contentType: mimetype },
+                metadata: { contentType: mimeType },
             });
 
             file.pipe(stream);
