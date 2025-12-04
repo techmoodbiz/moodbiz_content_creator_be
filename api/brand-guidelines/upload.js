@@ -2,7 +2,7 @@
 
 const fetch = require('node-fetch');
 const admin = require('firebase-admin');
-const Busboy = require('busboy');
+const busboy = require('busboy');
 
 // Khởi tạo Firebase Admin (nếu chưa)
 if (!admin.apps.length) {
@@ -52,18 +52,18 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Content-Type must be multipart/form-data' });
         }
 
-        const busboy = new Busboy({ headers: req.headers });
+        const bb = busboy({ headers: req.headers });
 
         let uploadFile = null;
         const fields = {};
 
         // Lấy field text (brandId, type, description, uploadedBy, uploadedRole)
-        busboy.on('field', (fieldname, val) => {
+        bb.on('field', (fieldname, val) => {
             fields[fieldname] = val;
         });
 
         // Lấy file - Busboy v1.x syntax
-        busboy.on('file', (fieldname, file, info) => {
+        bb.on('file', (fieldname, file, info) => {
             const { filename, encoding, mimeType } = info;
 
             if (fieldname !== 'file') {
@@ -91,7 +91,7 @@ module.exports = async function handler(req, res) {
             });
         });
 
-        busboy.on('finish', async () => {
+        bb.on('finish', async () => {
             if (!uploadFile) {
                 return res.status(400).json({ error: 'No file uploaded' });
             }
@@ -126,7 +126,7 @@ module.exports = async function handler(req, res) {
             });
         });
 
-        req.pipe(busboy);
+        req.pipe(bb);
     } catch (e) {
         console.error('ERR/brand-guidelines-upload:', e);
         return res.status(500).json({ error: 'Server error', message: e.message });
