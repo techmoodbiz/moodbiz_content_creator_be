@@ -7,8 +7,13 @@ const Busboy = require('busboy');
 // Khởi tạo Firebase Admin (nếu chưa)
 if (!admin.apps.length) {
     admin.initializeApp({
-        credential: admin.credential.cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)),
-        storageBucket: process.env.FIREBASE_STORAGE_BUCKET, // vd: "moodbiz---rbac.firebasestorage.app"
+        credential: admin.credential.cert({
+            type: "service_account",
+            project_id: process.env.FIREBASE_PROJECT_ID,
+            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        }),
+        storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
     });
 }
 
