@@ -1,106 +1,140 @@
+import * as cheerio from "cheerio";
 
+export default async function handler(req, res) {
+    // CORS
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET,OPTIONS,PATCH,DELETE,POST,PUT"
+    );
+    res.setHeader(
+        "Access-Control-Allow-Headers",
+        "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+    );
 
-// Bỏ phần:
-// import GoogleGenerativeAI from "@google/generative-ai";
-// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    if (req.method === "OPTIONS") {
+        res.status(200).end();
+        return;
+    }
 
-// Thay toàn bộ "Step 3 Use Gemini AI..." bằng:
-const apiKey = process.env.GEMINI_APIKEY; // giống audit.js
-if (!apiKey) {
-    console.error("GEMINI_APIKEY not found in environment");
-    return res.status(500).json({ error: "API key not configured" });
-}
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
+    }
 
-const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-
-const prompt = `
-Analyze the following website content and extract brand guideline information.
-Return ONLY a valid JSON object (no markdown, no code blocks) with this exact structure:
-
-{
-  "brandName": "Company/Brand name",
-  "industry": "Industry/Sector",
-  "targetAudience": "Target audience description",
-  "tone": "Communication tone (formal/casual/friendly/professional)",
-  "coreValues": ["Value 1", "Value 2", "Value 3"],
-  "keywords": ["keyword1", "keyword2", "keyword3"],
-  "visualStyle": "Description of visual style",
-  "dos": ["Do this", "Do that"],
-  "donts": ["Don't do this", "Don't do that"],
-  "summary": "Brief brand summary"
-}
-
-Website Data:
-- Title: ${extractedData.title}
-- Meta Description: ${extractedData.metaDescription}
-- Main Content: ${extractedData.mainText}
-- About Section: ${extractedData.aboutText}
-- Key Headings: ${extractedData.headings.join(" | ")} 
-`;
-
-const requestBody = {
-    contents: [
-        {
-            parts: [{ text: prompt }]
+    try {
+        const { websiteUrl } = req.body;
+        if (!websiteUrl) {
+            return res.status(400).json({ error: "Website URL is required" });
         }
-    ],
-    generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-    },
-};
 
-console.log("Calling Gemini API for analyze-brand...");
-const aiRes = await fetch(geminiUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(requestBody),
-});
+        // Validate URL
+        let url;
+        try {
+            url = new URL(websiteUrl);
+        } catch (e) {
+            return res.status(400).json({ error: "Invalid URL format" });
+        }
 
-if (!aiRes.ok) {
-    const errorText = await aiRes.text();
-    console.error("Gemini API error (analyze-brand):", aiRes.status, errorText);
-    return res.status(aiRes.status).json({
-        error: "Gemini API error",
-        status: aiRes.status,
-        details: errorText,
-    });
+        console.log(`Analyzing brand from: ${websiteUrl}`);
+
+        // STEP 1: fetch website
+        const response = await fetch(websiteUrl, {
+            headers: {
+                "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            },
+        });
+
+        if (!response.ok) {
+            return res.status(400).json({
+                error: `Website chặn bot (status ${response.status}). Vui lòng chọn website khác hoặc nhập brief tay.`,
+            });
+        }
+
+        const html = await response.text();
+        const $ = cheerio.load(html);
+
+        // STEP 2: extractData (giữ nguyên code cũ của bạn)
+        const extractedData = { /* ... như file cũ ... */ };
+
+        // ===== STEP 3: GỌI GEMINI – ĐẶT Ở ĐÂY =====
+        const apiKey = process.env.GEMINI_APIKEY;
+        if (!apiKey) {
+            console.error("GEMINI_APIKEY not found in environment");
+            return res.status(500).json({ error: "API key not configured" });
+        }
+
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const prompt = `... dùng extractedData ...`;
+
+        const requestBody = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 8192,
+                responseMimeType: "application/json",
+            },
+        };
+
+        console.log("Calling Gemini API for analyze-brand...");
+        const aiRes = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!aiRes.ok) {
+            const errorText = await aiRes.text();
+            console.error("Gemini API error (analyze-brand):", aiRes.status, errorText);
+            return res.status(aiRes.status).json({
+                error: "Gemini API error",
+                status: aiRes.status,
+                details: errorText,
+            });
+        }
+
+        const data = await aiRes.json();
+        const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
+
+        if (!textResult) {
+            console.error("No text result from Gemini (analyze-brand)");
+            return res.status(500).json({ error: "No response from AI" });
+        }
+
+        let brandGuideline = null;
+        try {
+            const cleaned = textResult
+                .trim()
+                .replace(/```json?/gi, '')
+                .replace(/```/g, '')
+                .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
+            brandGuideline = JSON.parse(cleaned);
+        } catch (parseError) {
+            console.warn("ANALYZE JSON parse failed at BE:", parseError.message);
+            return res.status(500).json({
+                error: "Failed to parse AI response",
+                details: parseError.message,
+                rawResponse: textResult,
+            });
+        }
+
+        const responseData = {
+            ...brandGuideline,
+            sourceUrl: websiteUrl,
+            analyzedAt: new Date().toISOString(),
+            method: "autogenerated",
+            confidence: "medium",
+        };
+
+        console.log("Successfully analyzed brand:", responseData.brandName);
+        return res.status(200).json({ success: true, data: responseData });
+    } catch (error) {
+        console.error("Error analyzing brand:", error);
+        return res.status(500).json({
+            error: "Failed to analyze brand",
+            details: error.message,
+        });
+    }
 }
-
-const data = await aiRes.json();
-const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-if (!textResult) {
-    console.error("No text result from Gemini (analyze-brand)");
-    return res.status(500).json({ error: "No response from AI" });
-}
-
-// Clean + parse JSON tương tự audit.js
-let brandGuideline = null;
-try {
-    const cleaned = textResult
-        .trim()
-        .replace(/```json?/gi, '')
-        .replace(/```/g, '')
-        .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
-    brandGuideline = JSON.parse(cleaned);
-} catch (parseError) {
-    console.warn("ANALYZE JSON parse failed at BE:", parseError.message);
-    return res.status(500).json({
-        error: "Failed to parse AI response",
-        details: parseError.message,
-        rawResponse: textResult,
-    });
-}
-
-const responseData = {
-    ...brandGuideline,
-    sourceUrl: websiteUrl,
-    analyzedAt: new Date().toISOString(),
-    method: "autogenerated",
-    confidence: "medium",
-};
-
-console.log("Successfully analyzed brand:", responseData.brandName);
-return res.status(200).json({ success: true, data: responseData });
