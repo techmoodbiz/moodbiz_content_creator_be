@@ -50,8 +50,11 @@ export default async function handler(req, res) {
         });
 
         if (!response.ok) {
-            throw new Error(`Failed to fetch website: ${response.status} ${response.statusText}`);
+            return res.status(400).json({
+                error: `Website chặn bot (status ${response.status}). Vui lòng chọn website khác hoặc nhập brief tay.`
+            });
         }
+
 
         const html = await response.text();
         const $ = cheerio.load(html);
