@@ -131,21 +131,34 @@ module.exports = async function handler(req, res) {
                     embedding: embedding, // Array of floats
                     char_start: chunk.start,
                     char_end: chunk.end,
+                    has_embedding: true, // Track embedding status
                 };
             } catch (err) {
-                console.error(`Error embedding chunk ${idx}:`, err);
-                return null;
+                console.error(`Error embedding chunk ${idx}:`, err.message || err);
+                // Still save chunk without embedding for Simple RAG fallback
+                return {
+                    chunk_index: idx,
+                    text: chunk.text,
+                    embedding: null, // No embedding available
+                    char_start: chunk.start,
+                    char_end: chunk.end,
+                    has_embedding: false, // Mark as missing embedding
+                };
             }
         });
 
-        const embeddedChunks = (await Promise.all(embeddingPromises)).filter(
-            (c) => c !== null
-        );
+        const allChunks = await Promise.all(embeddingPromises);
+        const chunksWithEmbedding = allChunks.filter(c => c.has_embedding);
 
-        // 6. Lưu chunks vào Firestore subcollection
+        console.log(`Embedding results: ${chunksWithEmbedding.length}/${allChunks.length} chunks successfully embedded`);
+        if (chunksWithEmbedding.length < allChunks.length) {
+            console.warn(`⚠️ ${allChunks.length - chunksWithEmbedding.length} chunks saved WITHOUT embeddings (Simple RAG only)`);
+        }
+
+        // 6. Lưu chunks vào Firestore subcollection (cả có và không có embedding)
         const batch = db.batch();
 
-        embeddedChunks.forEach((chunk) => {
+        allChunks.forEach((chunk) => {
             const chunkRef = guidelineRef.collection('chunks').doc();
             batch.set(chunkRef, {
                 ...chunk,
@@ -158,16 +171,20 @@ module.exports = async function handler(req, res) {
             status: 'approved',
             ingested_at: admin.firestore.FieldValue.serverTimestamp(),
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
-            chunk_count: embeddedChunks.length,
+            chunk_count: allChunks.length,
+            chunks_with_embedding: chunksWithEmbedding.length,
+            chunks_without_embedding: allChunks.length - chunksWithEmbedding.length,
         });
 
         await batch.commit();
 
         return res.status(200).json({
             success: true,
-            message: `Ingested ${embeddedChunks.length} chunks successfully`,
+            message: `Ingested ${allChunks.length} chunks (${chunksWithEmbedding.length} with embeddings, ${allChunks.length - chunksWithEmbedding.length} without)`,
             guidelineId,
-            chunkCount: embeddedChunks.length,
+            chunkCount: allChunks.length,
+            chunksWithEmbedding: chunksWithEmbedding.length,
+            chunksWithoutEmbedding: allChunks.length - chunksWithEmbedding.length,
         });
     } catch (e) {
         console.error('ERR/brand-guidelines-approve-and-ingest:', e);
