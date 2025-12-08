@@ -1,5 +1,4 @@
-// Thêm ở đầu file (nếu chưa có)
-import fetch from 'node-fetch';
+
 
 // Bỏ phần:
 // import GoogleGenerativeAI from "@google/generative-ai";
