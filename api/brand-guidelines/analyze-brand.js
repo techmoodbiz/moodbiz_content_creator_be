@@ -24,6 +24,7 @@ export default async function handler(req, res) {
 
     try {
         const { websiteUrl } = req.body;
+
         if (!websiteUrl) {
             return res.status(400).json({ error: "Website URL is required" });
         }
@@ -55,10 +56,60 @@ export default async function handler(req, res) {
         const html = await response.text();
         const $ = cheerio.load(html);
 
-        // STEP 2: extractData (giữ nguyên code cũ của bạn)
-        const extractedData = { /* ... như file cũ ... */ };
+        // STEP 2: Extract basic information (giữ logic gốc)
+        const extractedData = {
+            title: $("title").text() || "",
+            metaDescription: $('meta[name="description"]').attr("content") || "",
+            metaKeywords: $('meta[name="keywords"]').attr("content") || "",
+            ogTitle: $('meta[property="og:title"]').attr("content") || "",
+            ogDescription: $('meta[property="og:description"]').attr("content") || "",
+            mainText: "",
+            aboutText: "",
+            headings: [],
+        };
 
-        // ===== STEP 3: GỌI GEMINI – ĐẶT Ở ĐÂY =====
+        // Main text
+        $("p, h1, h2, h3, li").each((i, elem) => {
+            if (i < 50) {
+                const text = $(elem).text().trim();
+                if (text.length > 10) {
+                    extractedData.mainText += text + " ";
+                }
+            }
+        });
+
+        // About section
+        $("section, div, article").each((i, elem) => {
+            const text = $(elem).text();
+            const innerHtml = $(elem).html() || "";
+            if (
+                innerHtml.toLowerCase().includes("about") ||
+                text.toLowerCase().includes("about us") ||
+                text.toLowerCase().includes("về chúng tôi")
+            ) {
+                extractedData.aboutText += $(elem).text().substring(0, 1000) + " ";
+            }
+        });
+
+        // Headings
+        $("h1, h2, h3").each((i, elem) => {
+            if (i < 10) {
+                extractedData.headings.push($(elem).text().trim());
+            }
+        });
+
+        // Trim to avoid token limits
+        extractedData.mainText = extractedData.mainText.substring(0, 3000);
+        extractedData.aboutText = extractedData.aboutText.substring(0, 1500);
+
+        console.log("Extracted data:", {
+            title: extractedData.title,
+            textLength: extractedData.mainText.length,
+            aboutLength: extractedData.aboutText.length,
+            headings: extractedData.headings.length,
+        });
+
+        // STEP 3: Call Gemini via REST API (giống audit.js)
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
             console.error("GEMINI_API_KEY not found in environment");
@@ -67,7 +118,32 @@ export default async function handler(req, res) {
 
         const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
 
-        const prompt = `... dùng extractedData ...`;
+        const prompt = `
+Analyze the following website content and extract brand guideline information.
+
+Return ONLY a valid JSON object with EXACTLY these camelCase keys:
+{
+  "brandName": "Company/Brand name",
+  "industry": "Industry/Sector",
+  "targetAudience": "Target audience description",
+  "tone": "Communication tone (formal/casual/friendly/professional)",
+  "coreValues": ["Value 1", "Value 2", "Value 3"],
+  "keywords": ["keyword1", "keyword2", "keyword3"],
+  "visualStyle": "Description of visual style",
+  "dos": ["Do this", "Do that"],
+  "donts": ["Don't do this", "Don't do that"],
+  "summary": "Brief brand summary"
+}
+
+Do NOT add, remove, or rename any keys. Use exactly these key names.
+
+Website Data:
+- Title: ${extractedData.title}
+- Meta Description: ${extractedData.metaDescription}
+- Main Content: ${extractedData.mainText}
+- About Section: ${extractedData.aboutText}
+- Key Headings: ${extractedData.headings.join(" | ")}
+`;
 
         const requestBody = {
             contents: [{ parts: [{ text: prompt }] }],
@@ -103,6 +179,7 @@ export default async function handler(req, res) {
             return res.status(500).json({ error: "No response from AI" });
         }
 
+        // Clean & parse JSON
         let brandGuideline = null;
         try {
             const cleaned = textResult
@@ -120,15 +197,51 @@ export default async function handler(req, res) {
             });
         }
 
+        console.log(
+            "ANALYZE brandGuideline:",
+            JSON.stringify(brandGuideline, null, 2)
+        );
+
+        // Normalize schema + metadata
         const responseData = {
-            ...brandGuideline,
+            brandName:
+                brandGuideline?.brandName ||
+                brandGuideline?.brand_name ||
+                brandGuideline?.name ||
+                extractedData.title ||
+                "",
+
+            industry: brandGuideline?.industry || "",
+            targetAudience:
+                brandGuideline?.targetAudience ||
+                brandGuideline?.target_audience ||
+                "",
+            tone: brandGuideline?.tone || "",
+            coreValues:
+                brandGuideline?.coreValues ||
+                brandGuideline?.core_values ||
+                [],
+            keywords: brandGuideline?.keywords || [],
+            visualStyle:
+                brandGuideline?.visualStyle ||
+                brandGuideline?.visual_style ||
+                "",
+            dos: brandGuideline?.dos || [],
+            donts: brandGuideline?.donts || [],
+            summary: brandGuideline?.summary || "",
+
             sourceUrl: websiteUrl,
             analyzedAt: new Date().toISOString(),
             method: "autogenerated",
             confidence: "medium",
         };
 
+        console.log(
+            "ANALYZE responseData:",
+            JSON.stringify(responseData, null, 2)
+        );
         console.log("Successfully analyzed brand:", responseData.brandName);
+
         return res.status(200).json({ success: true, data: responseData });
     } catch (error) {
         console.error("Error analyzing brand:", error);
