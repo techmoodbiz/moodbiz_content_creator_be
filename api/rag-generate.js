@@ -36,6 +36,59 @@ function cosineSimilarity(vecA, vecB) {
 }
 
 /**
+ * SIMPLE RAG: Retrieve all guideline chunks (no semantic search)
+ * Used as fallback when embedding API quota exceeded
+ */
+async function getGuidelinesSimple(brandId) {
+  try {
+    console.log(`[Simple RAG] Fetching guidelines for brand: ${brandId}`);
+
+    // Get approved guidelines
+    const guidelinesSnapshot = await db
+      .collection("brand_guidelines")
+      .where("brand_id", "==", brandId)
+      .where("status", "==", "approved")
+      .get();
+
+    if (guidelinesSnapshot.empty) {
+      console.log(`[Simple RAG] No approved guidelines found for brand: ${brandId}`);
+      return "";
+    }
+
+    console.log(`[Simple RAG] Found ${guidelinesSnapshot.size} approved guidelines`);
+
+    // Collect all chunks from all guidelines
+    const allChunksText = [];
+
+    for (const guidelineDoc of guidelinesSnapshot.docs) {
+      const guideline = guidelineDoc.data();
+
+      // Get chunks subcollection
+      const chunksSnapshot = await guidelineDoc.ref.collection("chunks").get();
+
+      if (!chunksSnapshot.empty) {
+        console.log(`[Simple RAG] - ${guideline.file_name}: ${chunksSnapshot.size} chunks`);
+
+        chunksSnapshot.forEach((chunkDoc) => {
+          const chunk = chunkDoc.data();
+          if (chunk.text) {
+            allChunksText.push(chunk.text);
+          }
+        });
+      }
+    }
+
+    const context = allChunksText.join("\n\n");
+    console.log(`[Simple RAG] Total context length: ${context.length} chars`);
+
+    return context;
+  } catch (err) {
+    console.error("[Simple RAG] Error fetching guidelines:", err);
+    return "";
+  }
+}
+
+/**
  * VECTOR RAG: Semantic search using cosine similarity
  */
 async function getGuidelinesVector(brandId, query, topK = 5) {
@@ -59,13 +112,15 @@ async function getGuidelinesVector(brandId, query, topK = 5) {
     const embedData = await embedResponse.json();
     if (embedData.error) {
       console.error("[Vector RAG] Embedding error:", embedData.error);
-      return "";
+      console.warn("[Vector RAG] Falling back to Simple RAG...");
+      return null; // Return null to trigger Simple RAG fallback
     }
 
     const queryEmbedding = embedData.embedding?.values;
     if (!queryEmbedding) {
       console.error("[Vector RAG] No embedding returned");
-      return "";
+      console.warn("[Vector RAG] Falling back to Simple RAG...");
+      return null; // Return null to trigger Simple RAG fallback
     }
 
     console.log(`[Vector RAG] Query embedding dimension: ${queryEmbedding.length}`);
@@ -178,13 +233,27 @@ module.exports = async function handler(req, res) {
     console.log(`Topic: ${topic}`);
     console.log(`Platform: ${platform}`);
 
-    // 🎯 Vector RAG: Query brand guidelines
+    // 🎯 RAG: Try Vector RAG first, fallback to Simple RAG if embedding quota exceeded
     let guidelineContext = "";
+    let ragMethod = "none";
 
     if (brand?.id) {
       const query = `${topic} - ${platform}`;
+
+      // Try Vector RAG first
       guidelineContext = await getGuidelinesVector(brand.id, query, 5);
+
+      // If Vector RAG returns null (embedding quota issue), fallback to Simple RAG
+      if (guidelineContext === null) {
+        console.log(`🔄 Fallback: Switching to Simple RAG...`);
+        guidelineContext = await getGuidelinesSimple(brand.id);
+        ragMethod = guidelineContext ? "simple" : "none";
+      } else {
+        ragMethod = guidelineContext ? "vector" : "none";
+      }
     }
+
+    console.log(`📊 RAG Method Used: ${ragMethod.toUpperCase()}`);
 
     // Build final prompt with guideline context
     const finalPrompt = `
@@ -242,7 +311,8 @@ ${systemPrompt || ""}
     res.status(200).json({
       result: text,
       hasGuidelines: !!guidelineContext,
-      guidelineLength: guidelineContext.length
+      guidelineLength: guidelineContext.length,
+      ragMethod: ragMethod
     });
   } catch (e) {
     console.error("ERR_rag_generate:", e);
