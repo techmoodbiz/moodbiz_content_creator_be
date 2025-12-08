@@ -59,9 +59,9 @@ export default async function handler(req, res) {
         const extractedData = { /* ... như file cũ ... */ };
 
         // ===== STEP 3: GỌI GEMINI – ĐẶT Ở ĐÂY =====
-        const apiKey = process.env.GEMINI_APIKEY;
+        const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
-            console.error("GEMINI_APIKEY not found in environment");
+            console.error("GEMINI_API_KEY not found in environment");
             return res.status(500).json({ error: "API key not configured" });
         }
 
