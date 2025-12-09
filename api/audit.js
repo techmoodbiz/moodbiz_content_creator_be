@@ -27,14 +27,19 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // Lấy brand & prompt
-    const { brand, prompt } = req.body;
+    // FE gửi: { brand, contentType, prompt }
+    const { brand, contentType = 'social', prompt } = req.body;
 
-    // Validate
+    // Validate prompt
     if (!prompt || typeof prompt !== 'string') {
       console.error('Invalid prompt:', prompt);
-      return res.status(400).json({ error: 'Prompt is required and must be a string' });
+      return res
+        .status(400)
+        .json({ error: 'Prompt is required and must be a string' });
     }
+
+    console.log('🧩 contentType:', contentType);
+    console.log('📌 brand:', brand?.id || '(none)');
 
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
@@ -42,16 +47,20 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({ error: 'API key not configured' });
     }
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+    const geminiUrl =
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=' +
+      apiKey;
 
     const requestBody = {
-      contents: [{
-        parts: [{ text: prompt }],
-      }],
+      contents: [
+        {
+          parts: [{ text: prompt }], // dùng đúng prompt FE build (social / website)
+        },
+      ],
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json', // Bắt buộc trả JSON
+        responseMimeType: 'application/json', // yêu cầu trả JSON
       },
     };
 
@@ -83,7 +92,8 @@ module.exports = async function handler(req, res) {
     }
 
     // Lấy text thô từ Gemini
-    const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const textResult =
+      data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     if (!textResult) {
       console.error('❌ No text result from Gemini');
@@ -93,7 +103,7 @@ module.exports = async function handler(req, res) {
     console.log('✅ AUDIT_SUCCESS - Text length:', textResult.length);
     console.log('📄 Preview:', textResult.substring(0, 200));
 
-    // 👇 MỚI: backend cố gắng parse JSON trước
+    // Backend cố gắng parse JSON trước
     let parsed = null;
     try {
       const cleaned = textResult
@@ -103,7 +113,10 @@ module.exports = async function handler(req, res) {
         .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
       parsed = JSON.parse(cleaned);
     } catch (parseErr) {
-      console.warn('⚠️ AUDIT JSON parse failed at BE:', parseErr.message);
+      console.warn(
+        '⚠️ AUDIT JSON parse failed at BE:',
+        parseErr.message
+      );
     }
 
     // Nếu parse OK: trả luôn object cho FE dùng theo schema PROMPT
