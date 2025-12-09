@@ -232,6 +232,9 @@ module.exports = async function handler(req, res) {
     console.log(`Brand: ${brand?.name || "Unknown"} (${brand?.id})`);
     console.log(`Topic: ${topic}`);
     console.log(`Platform: ${platform}`);
+    if (brand?.commonMistakes?.length) {
+      console.log(`Common Mistakes: ${brand.commonMistakes.map(m => m.type).join(", ")}`);
+    }
 
     // 🎯 RAG: Try Vector RAG first, fallback to Simple RAG if embedding quota exceeded
     let guidelineContext = "";
@@ -255,6 +258,13 @@ module.exports = async function handler(req, res) {
 
     console.log(`📊 RAG Method Used: ${ragMethod.toUpperCase()}`);
 
+    // Format common mistakes for display
+    const commonMistakesText = (brand?.commonMistakes?.length > 0)
+      ? brand.commonMistakes
+          .map(m => `- ${m.type} (${m.count} lần)`)
+          .join('\n')
+      : 'Chưa có dữ liệu lỗi';
+
     // Build final prompt with guideline context
     const finalPrompt = `
 Bạn là trợ lý nội dung cho thương hiệu ${brand?.name || ""}.
@@ -274,6 +284,10 @@ ${guidelineContext}
 [THÔNG TIN THƯƠNG HIỆU]
 Tính cách: ${brand?.personality || ""}
 Giọng văn: ${brand?.voice || ""}
+
+[CẦN TRÁNH - CÁC LỖI THƯỜNG GẶP]
+Dựa trên lịch sử audit, hãy tránh những lỗi sau:
+${commonMistakesText}
 
 [YÊU CẦU CONTENT]
 Kênh đăng: ${platform || ""}
