@@ -61,7 +61,7 @@ module.exports = async function handler(req, res) {
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json',
+        responseMimeType: 'application/json', // yêu cầu JSON thuần
       },
     };
 
@@ -111,47 +111,40 @@ module.exports = async function handler(req, res) {
         .replace(/```json?/gi, '')
         .replace(/```/g, '')
         .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
-      
-      // Attempt 1: Direct parse
-      try {
-        parsed = JSON.parse(cleaned);
-        console.log('✅ JSON parsed successfully (first attempt)');
-      } catch (firstErr) {
-        // Attempt 2: Fix common escape issues
-        console.warn('⚠️ Fixing escape issues...');
-        cleaned = cleaned
-          .replace(/\\/g, '\\\\')     // Double-escape backslashes
-          .replace(/\n/g, '\\n')      // Escape newlines
-          .replace(/\r/g, '\\r')      // Escape carriage returns
-          .replace(/\t/g, '\\t')      // Escape tabs
-          .replace(/\\\\n/g, '\\n')   // Fix double-escaping
-          .replace(/\\\\"/g, '\\"');  // Fix double-escaped quotes
-        
-        parsed = JSON.parse(cleaned);
-        console.log('✅ JSON parsed successfully (after fixes)');
-      }
-    } catch (parseErr) {
-      console.error('❌ AUDIT JSON parse failed at BE:', parseErr.message);
-      console.log('📍 Error position:', parseErr.message.match(/position (\d+)/)?.[1]);
-      
-      // Log problematic area for debugging
-      const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0');
-      if (pos > 0) {
-        console.log('📄 Context:', textResult.substring(Math.max(0, pos - 50), pos + 50));
-      }
-    } // ✅ THÊM dấu đóng try-catch parse
 
-    // Nếu parse OK: trả luôn object cho FE
+      // Cắt mọi thứ trước { hoặc [ (tránh BOM / text rác)
+      cleaned = cleaned.replace(/^[^\{\[]*/, '');
+
+      if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
+        console.warn('AUDIT: cleaned JSON does not start with { or [');
+      }
+
+      parsed = JSON.parse(cleaned);
+      console.log('✅ JSON parsed successfully at BE');
+    } catch (parseErr) {
+      console.error(
+        '❌ AUDIT JSON parse failed at BE:',
+        parseErr.message
+      );
+      const posMatch = parseErr.message.match(/position (\d+)/);
+      const pos = posMatch ? parseInt(posMatch[1], 10) : 0;
+      if (pos > 0) {
+        console.log(
+          '📄 Context:',
+          textResult.substring(Math.max(0, pos - 50), pos + 50)
+        );
+      }
+    }
+
+    // Nếu parse OK: trả luôn object cho FE dùng theo schema PROMPT
     if (parsed && typeof parsed === 'object') {
-      console.log('✅ Returning parsed JSON object');
       return res.status(200).json({
         result: parsed,
         success: true,
       });
     }
 
-    // Fallback: trả lại raw text cho FE tự xử lý
-    console.log('⚠️ Returning raw text (parse failed)');
+    // Fallback: trả lại text để FE tự xử lý
     return res.status(200).json({
       result: textResult,
       success: true,
@@ -164,5 +157,5 @@ module.exports = async function handler(req, res) {
       error: 'Server error',
       message: e.message,
     });
-  } // ✅ THÊM dấu đóng try-catch chính
-}; // ✅ THÊM dấu đóng module.exports
+  }
+};
