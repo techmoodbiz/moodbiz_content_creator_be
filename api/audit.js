@@ -115,9 +115,10 @@ module.exports = async function handler(req, res) {
       // Cắt mọi thứ trước { hoặc [ (tránh BOM / text rác)
       cleaned = cleaned.replace(/^[^\{\[]*/, '');
 
-      if (!cleaned.startsWith('{') && !cleaned.startsWith('[')) {
-        console.warn('AUDIT: cleaned JSON does not start with { or [');
-      }
+      cleaned = cleaned.replace(
+        /\\(?!["\\\/bfnrtu])/g,
+        '' // bỏ backslash dư
+      );
 
       parsed = JSON.parse(cleaned);
       console.log('✅ JSON parsed successfully at BE');
