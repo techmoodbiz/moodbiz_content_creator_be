@@ -17,15 +17,15 @@ module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
     res.setHeader('Access-Control-Max-Age', '86400');
-  } // ✅ THÊM dấu đóng ngoặc
+  }
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
-  } // ✅ THÊM dấu đóng ngoặc
+  }
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
-  } // ✅ THÊM dấu đóng ngoặc
+  }
 
   try {
     // FE gửi: { brand, contentType, prompt }
@@ -37,7 +37,7 @@ module.exports = async function handler(req, res) {
       return res
         .status(400)
         .json({ error: 'Prompt is required and must be a string' });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
     console.log('🧩 contentType:', contentType);
     console.log('📌 brand:', brand?.id || '(none)');
@@ -46,7 +46,7 @@ module.exports = async function handler(req, res) {
     if (!apiKey) {
       console.error('GEMINI_API_KEY not found in environment');
       return res.status(500).json({ error: 'API key not configured' });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
     const geminiUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=' +
@@ -55,13 +55,13 @@ module.exports = async function handler(req, res) {
     const requestBody = {
       contents: [
         {
-          parts: [{ text: prompt }], // dùng đúng prompt FE build (social / website)
+          parts: [{ text: prompt }],
         },
       ],
       generationConfig: {
         temperature: 0.7,
         maxOutputTokens: 8192,
-        responseMimeType: 'application/json', // yêu cầu trả JSON
+        responseMimeType: 'application/json',
       },
     };
 
@@ -81,7 +81,7 @@ module.exports = async function handler(req, res) {
         error: `Gemini API error: ${response.status}`,
         details: errorText,
       });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
     const data = await response.json();
     if (data.error) {
@@ -89,7 +89,7 @@ module.exports = async function handler(req, res) {
       return res.status(500).json({
         error: data.error.message || 'Gemini error',
       });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
     // Lấy text thô từ Gemini
     const textResult =
@@ -98,7 +98,7 @@ module.exports = async function handler(req, res) {
     if (!textResult) {
       console.error('❌ No text result from Gemini');
       return res.status(500).json({ error: 'No response from AI' });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
     console.log('✅ AUDIT_SUCCESS - Text length:', textResult.length);
     console.log('📄 Preview:', textResult.substring(0, 200));
@@ -106,31 +106,56 @@ module.exports = async function handler(req, res) {
     // Backend cố gắng parse JSON trước
     let parsed = null;
     try {
-      const cleaned = textResult
+      let cleaned = textResult
         .trim()
         .replace(/```json?/gi, '')
         .replace(/```/g, '')
         .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
-      parsed = JSON.parse(cleaned);
+      
+      // Attempt 1: Direct parse
+      try {
+        parsed = JSON.parse(cleaned);
+        console.log('✅ JSON parsed successfully (first attempt)');
+      } catch (firstErr) {
+        // Attempt 2: Fix common escape issues
+        console.warn('⚠️ Fixing escape issues...');
+        cleaned = cleaned
+          .replace(/\\/g, '\\\\')     // Double-escape backslashes
+          .replace(/\n/g, '\\n')      // Escape newlines
+          .replace(/\r/g, '\\r')      // Escape carriage returns
+          .replace(/\t/g, '\\t')      // Escape tabs
+          .replace(/\\\\n/g, '\\n')   // Fix double-escaping
+          .replace(/\\\\"/g, '\\"');  // Fix double-escaped quotes
+        
+        parsed = JSON.parse(cleaned);
+        console.log('✅ JSON parsed successfully (after fixes)');
+      }
     } catch (parseErr) {
-      console.warn(
-        '⚠️ AUDIT JSON parse failed at BE:',
-        parseErr.message
-      );
-    } // ✅ THÊM dấu đóng ngoặc
+      console.error('❌ AUDIT JSON parse failed at BE:', parseErr.message);
+      console.log('📍 Error position:', parseErr.message.match(/position (\d+)/)?.[1]);
+      
+      // Log problematic area for debugging
+      const pos = parseInt(parseErr.message.match(/position (\d+)/)?.[1] || '0');
+      if (pos > 0) {
+        console.log('📄 Context:', textResult.substring(Math.max(0, pos - 50), pos + 50));
+      }
+    } // ✅ THÊM dấu đóng try-catch parse
 
-    // Nếu parse OK: trả luôn object cho FE dùng theo schema PROMPT
+    // Nếu parse OK: trả luôn object cho FE
     if (parsed && typeof parsed === 'object') {
+      console.log('✅ Returning parsed JSON object');
       return res.status(200).json({
         result: parsed,
         success: true,
       });
-    } // ✅ THÊM dấu đóng ngoặc
+    }
 
-    // Fallback: trả lại text để FE tự xử lý như logic hiện tại
+    // Fallback: trả lại raw text cho FE tự xử lý
+    console.log('⚠️ Returning raw text (parse failed)');
     return res.status(200).json({
       result: textResult,
       success: true,
+      parseError: true,
     });
   } catch (e) {
     console.error('❌ ERR/audit:', e.message);
@@ -139,5 +164,5 @@ module.exports = async function handler(req, res) {
       error: 'Server error',
       message: e.message,
     });
-  } // ✅ THÊM dấu đóng ngoặc
-}; // ✅ THÊM dấu đóng ngoặc module.exports
+  } // ✅ THÊM dấu đóng try-catch chính
+}; // ✅ THÊM dấu đóng module.exports
