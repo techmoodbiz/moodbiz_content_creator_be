@@ -1,4 +1,5 @@
 // api/audit.js
+
 const fetch = require('node-fetch');
 
 module.exports = async function handler(req, res) {
@@ -13,18 +14,18 @@ module.exports = async function handler(req, res) {
 
   if (whitelist.includes(allowedOrigin)) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-  res.setHeader('Access-Control-Max-Age', '86400');
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
+  } // ✅ THÊM dấu đóng ngoặc
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
-  }
+  } // ✅ THÊM dấu đóng ngoặc
 
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
-  }
+  } // ✅ THÊM dấu đóng ngoặc
 
   try {
     // FE gửi: { brand, contentType, prompt }
@@ -36,7 +37,7 @@ module.exports = async function handler(req, res) {
       return res
         .status(400)
         .json({ error: 'Prompt is required and must be a string' });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     console.log('🧩 contentType:', contentType);
     console.log('📌 brand:', brand?.id || '(none)');
@@ -45,7 +46,7 @@ module.exports = async function handler(req, res) {
     if (!apiKey) {
       console.error('GEMINI_API_KEY not found in environment');
       return res.status(500).json({ error: 'API key not configured' });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     const geminiUrl =
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=' +
@@ -80,16 +81,15 @@ module.exports = async function handler(req, res) {
         error: `Gemini API error: ${response.status}`,
         details: errorText,
       });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     const data = await response.json();
-
     if (data.error) {
       console.error('❌ Gemini returned error:', data.error);
       return res.status(500).json({
         error: data.error.message || 'Gemini error',
       });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     // Lấy text thô từ Gemini
     const textResult =
@@ -98,7 +98,7 @@ module.exports = async function handler(req, res) {
     if (!textResult) {
       console.error('❌ No text result from Gemini');
       return res.status(500).json({ error: 'No response from AI' });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     console.log('✅ AUDIT_SUCCESS - Text length:', textResult.length);
     console.log('📄 Preview:', textResult.substring(0, 200));
@@ -117,7 +117,7 @@ module.exports = async function handler(req, res) {
         '⚠️ AUDIT JSON parse failed at BE:',
         parseErr.message
       );
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     // Nếu parse OK: trả luôn object cho FE dùng theo schema PROMPT
     if (parsed && typeof parsed === 'object') {
@@ -125,7 +125,7 @@ module.exports = async function handler(req, res) {
         result: parsed,
         success: true,
       });
-    }
+    } // ✅ THÊM dấu đóng ngoặc
 
     // Fallback: trả lại text để FE tự xử lý như logic hiện tại
     return res.status(200).json({
@@ -139,5 +139,5 @@ module.exports = async function handler(req, res) {
       error: 'Server error',
       message: e.message,
     });
-  }
-};
+  } // ✅ THÊM dấu đóng ngoặc
+}; // ✅ THÊM dấu đóng ngoặc module.exports
