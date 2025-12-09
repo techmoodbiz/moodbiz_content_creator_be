@@ -178,6 +178,23 @@ module.exports = async function handler(req, res) {
 
         await batch.commit();
 
+        // Try to extract brand fields (personality/core values and tone) from the parsed text
+        try {
+            const extracted = extractBrandFieldsFromText(text);
+            const brandId = guideline.brand_id || guideline.brandid || null;
+            if (brandId && (extracted.personality || extracted.voice || extracted.brandName)) {
+                const updateData = {};
+                if (extracted.personality) updateData.personality = extracted.personality;
+                if (extracted.voice) updateData.voice = extracted.voice;
+                if (extracted.brandName) updateData.name = extracted.brandName;
+                updateData.last_guideline_updated_at = admin.firestore.FieldValue.serverTimestamp();
+                await db.collection('brands').doc(brandId).set(updateData, { merge: true });
+                console.log('Updated brand with extracted guideline fields for', brandId);
+            }
+        } catch (err) {
+            console.warn('Failed to extract/update brand fields after ingest:', err.message || err);
+        }
+
         return res.status(200).json({
             success: true,
             message: `Ingested ${allChunks.length} chunks (${chunksWithEmbedding.length} with embeddings, ${allChunks.length - chunksWithEmbedding.length} without)`,
@@ -220,4 +237,48 @@ function chunkText(text, chunkSize = 800, overlap = 100) {
     }
 
     return chunks;
+}
+
+/**
+ * Try to parse simple guideline structure to extract brandName, personality (core values), and voice (tone)
+ * Works for both auto-generated guideline text and parsed file text when those sections exist.
+ */
+function extractBrandFieldsFromText(text) {
+    if (!text || typeof text !== 'string') return {};
+    const res = { brandName: null, personality: null, voice: null };
+    try {
+        // Look for a heading with brand name: "# {Brand} Brand Guidelines" or "Phân tích brand: {name}"
+        const brandMatch = text.match(/^#\s*(.+?)\s+Brand Guidelines/i) || text.match(/Phân tích brand:\s*(.+)/i);
+        if (brandMatch) res.brandName = (brandMatch[1] || brandMatch[0]).trim();
+
+        // Try to find Tone: either "- **Tone:** VALUE" or "Tone: VALUE"
+        const toneMatch = text.match(/\*\*Tone:\*\*\s*([^\n\r]+)/i) || text.match(/\bTone:\s*([^\n\r]+)/i);
+        if (toneMatch) res.voice = toneMatch[1].trim();
+
+        // Try to extract Core Values block
+        const coreBlock = text.match(/##\s*Core Values[\s\S]*?(?=\n##|\n#|$)/i);
+        if (coreBlock) {
+            const lines = coreBlock[0].split(/\r?\n/).map(l => l.trim());
+            const values = [];
+            for (const l of lines) {
+                const m = l.match(/^[-\*\d\.\)\s]*\s*(.+)$/);
+                if (m && m[1] && m[1].length > 1) {
+                    // ignore heading line
+                    if (/Core Values/i.test(l)) continue;
+                    values.push(m[1].trim());
+                }
+            }
+            if (values.length) res.personality = values.join(', ');
+        } else {
+            // Fallback: find lines like "Core values:\n ..."
+            const inlineCore = text.match(/Core values:\s*\n?\s*([\s\S]{0,300})/i);
+            if (inlineCore) {
+                const vals = inlineCore[1].split(/[\-\n]/).map(s => s.trim()).filter(Boolean);
+                if (vals.length) res.personality = vals.join(', ');
+            }
+        }
+    } catch (e) {
+        console.warn('extractBrandFieldsFromText error', e.message || e);
+    }
+    return res;
 }
