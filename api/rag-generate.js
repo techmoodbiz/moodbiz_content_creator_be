@@ -202,7 +202,8 @@ module.exports = async function handler(req, res) {
     "https://moodbiz---rbac.web.app",
     "http://localhost:5000",
     "http://localhost:3000",
-    "http://127.0.0.1:5500"
+    "http://127.0.0.1:5500",
+    "https://brandchecker.moodbiz.agency"
   ];
   if (whitelist.includes(allowedOrigin)) {
     res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
@@ -261,8 +262,8 @@ module.exports = async function handler(req, res) {
     // Format common mistakes for display
     const commonMistakesText = (brand?.commonMistakes?.length > 0)
       ? brand.commonMistakes
-          .map(m => `- ${m.type} (${m.count} lần)`)
-          .join('\n')
+        .map(m => `- ${m.type} (${m.count} lần)`)
+        .join('\n')
       : 'Chưa có dữ liệu lỗi';
 
     // Build final prompt with guideline context
