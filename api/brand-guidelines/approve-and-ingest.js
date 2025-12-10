@@ -243,42 +243,87 @@ function chunkText(text, chunkSize = 800, overlap = 100) {
  * Try to parse simple guideline structure to extract brandName, personality (core values), and voice (tone)
  * Works for both auto-generated guideline text and parsed file text when those sections exist.
  */
+// Dùng chung cho cả file-based và text-based guideline
 function extractBrandFieldsFromText(text) {
     if (!text || typeof text !== 'string') return {};
+
     const res = { brandName: null, personality: null, voice: null };
+
     try {
-        // Look for a heading with brand name: "# {Brand} Brand Guidelines" or "Phân tích brand: {name}"
-        const brandMatch = text.match(/^#\s*(.+?)\s+Brand Guidelines/i) || text.match(/Phân tích brand:\s*(.+)/i);
-        if (brandMatch) res.brandName = (brandMatch[1] || brandMatch[0]).trim();
+        // 1. Tên brand
+        // Ví dụ:
+        //  - "# MOODBIZ Brand Guidelines"
+        //  - "Phân tích brand: MOODBIZ"
+        //  - "Brand: MOODBIZ"
+        const brandMatch =
+            text.match(/^#\s*(.+?)\s+Brand Guidelines/i) ||
+            text.match(/Phân tích brand[:\-]\s*([^\n\r]+)/i) ||
+            text.match(/Brand[:\-]\s*([^\n\r]+)/i);
 
-        // Try to find Tone: either "- **Tone:** VALUE" or "Tone: VALUE"
-        const toneMatch = text.match(/\*\*Tone:\*\*\s*([^\n\r]+)/i) || text.match(/\bTone:\s*([^\n\r]+)/i);
-        if (toneMatch) res.voice = toneMatch[1].trim();
+        if (brandMatch) {
+            res.brandName = (brandMatch[1] || brandMatch[0]).trim();
+        }
 
-        // Try to extract Core Values block
-        const coreBlock = text.match(/##\s*Core Values[\s\S]*?(?=\n##|\n#|$)/i);
+        // 2. Giọng văn / Tone of Voice
+        // Hỗ trợ cả tiếng Anh & tiếng Việt:
+        //  - "**Tone:** Ấm áp, gần gũi"
+        //  - "Tone: ...", "Tone of voice: ..."
+        //  - "Giọng văn: ...", "Giọng điệu thương hiệu: ..."
+        const toneMatch =
+            text.match(/\*\*Tone:\*\*\s*([^\n\r]+)/i) ||
+            text.match(/\bTone of voice[:\-]\s*([^\n\r]+)/i) ||
+            text.match(/\bTone[:\-]\s*([^\n\r]+)/i) ||
+            text.match(/Giọng (văn|điệu)[^\n\r:]*[:\-]\s*([^\n\r]+)/i);
+
+        if (toneMatch) {
+            res.voice = (toneMatch[1] || toneMatch[2]).trim();
+        }
+
+        // 3. Tính cách / Core values / Personality
+        // Tìm block:
+        //  - "## Core Values"
+        //  - "## Tính cách thương hiệu"
+        //  - "## Giá trị cốt lõi"
+        const coreBlock =
+            text.match(/##\s*Core Values[\s\S]*?(?=\n##|\n#|$)/i) ||
+            text.match(/##\s*Tính cách thương hiệu[\s\S]*?(?=\n##|\n#|$)/i) ||
+            text.match(/##\s*Giá trị cốt lõi[\s\S]*?(?=\n##|\n#|$)/i);
+
         if (coreBlock) {
             const lines = coreBlock[0].split(/\r?\n/).map(l => l.trim());
             const values = [];
             for (const l of lines) {
+                // bỏ dòng tiêu đề
+                if (/Core Values|Tính cách thương hiệu|Giá trị cốt lõi/i.test(l)) continue;
+                // lấy nội dung sau bullet "- ", "* ", "1) ", "1. "
                 const m = l.match(/^[-\*\d\.\)\s]*\s*(.+)$/);
                 if (m && m[1] && m[1].length > 1) {
-                    // ignore heading line
-                    if (/Core Values/i.test(l)) continue;
                     values.push(m[1].trim());
                 }
             }
-            if (values.length) res.personality = values.join(', ');
+            if (values.length) {
+                res.personality = values.join(', ');
+            }
         } else {
-            // Fallback: find lines like "Core values:\n ..."
-            const inlineCore = text.match(/Core values:\s*\n?\s*([\s\S]{0,300})/i);
+            // Fallback: "Core values: ..." / "Tính cách: ..."
+            const inlineCore =
+                text.match(/Core values[:\-]\s*([\s\S]{0,300})/i) ||
+                text.match(/Giá trị cốt lõi[:\-]\s*([\s\S]{0,300})/i) ||
+                text.match(/Tính cách thương hiệu[:\-]\s*([\s\S]{0,300})/i);
+
             if (inlineCore) {
-                const vals = inlineCore[1].split(/[\-\n]/).map(s => s.trim()).filter(Boolean);
-                if (vals.length) res.personality = vals.join(', ');
+                const vals = inlineCore[1]
+                    .split(/[-\n,]/)
+                    .map(s => s.trim())
+                    .filter(Boolean);
+                if (vals.length) {
+                    res.personality = vals.join(', ');
+                }
             }
         }
     } catch (e) {
         console.warn('extractBrandFieldsFromText error', e.message || e);
     }
+
     return res;
 }
