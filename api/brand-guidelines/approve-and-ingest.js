@@ -182,6 +182,12 @@ module.exports = async function handler(req, res) {
         try {
             const extracted = extractBrandFieldsFromText(text);
             const brandId = guideline.brand_id || guideline.brandid || null;
+            console.log('DEBUG BRAND EXTRACT FROM FILE', {
+                brandId,
+                extracted,
+                textSample: text.slice(0, 600),
+            });
+
             if (brandId && (extracted.personality || extracted.voice || extracted.brandName)) {
                 const updateData = {};
                 if (extracted.personality) updateData.personality = extracted.personality;
