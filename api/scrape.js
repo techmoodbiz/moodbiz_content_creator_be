@@ -3,13 +3,13 @@ const fetch = require('node-fetch');
 const cheerio = require('cheerio');
 const https = require('https');
 
-// Agent để bỏ qua lỗi SSL
+// Tạo Agent để bỏ qua lỗi SSL (UNABLE_TO_VERIFY_LEAF_SIGNATURE)
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
 
 module.exports = async function handler(req, res) {
-  // CORS
+  // --- CORS HANDLING ---
   const allowedOrigin = req.headers.origin;
   const whitelist = [
     'https://moodbiz---rbac.web.app',
@@ -23,29 +23,35 @@ module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Max-Age', '86400');
   }
 
-  if (req.method === 'OPTIONS') return res.status(200).end();
-  if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
 
   try {
     const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'URL is required' });
+
+    if (!url || typeof url !== 'string') {
+      return res.status(400).json({ error: 'URL is required' });
+    }
 
     console.log('🕷️ Scraping URL:', url);
 
-    // Headers giả lập trình duyệt thật để tránh bị chặn (400 Bad Request / 403 Forbidden)
+    // 1. Fetch HTML với Headers giả lập Browser đầy đủ hơn
     const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-      'Accept-Language': 'en-US,en;q=0.9',
-      'Connection': 'keep-alive',
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+      'Referer': 'https://www.google.com/',
       'Upgrade-Insecure-Requests': '1',
-      'Sec-Fetch-Dest': 'document',
-      'Sec-Fetch-Mode': 'navigate',
-      'Sec-Fetch-Site': 'none',
-      'Sec-Fetch-User': '?1',
-      'Cache-Control': 'max-age=0'
+      'Cache-Control': 'no-cache',
+      'Pragma': 'no-cache'
     };
 
     const response = await fetch(url, {
@@ -53,88 +59,108 @@ module.exports = async function handler(req, res) {
       agent: url.startsWith('https') ? httpsAgent : null,
       headers: headers,
       redirect: 'follow',
-      timeout: 20000 
+      timeout: 15000 // 15s timeout
     });
 
     if (!response.ok) {
-      throw new Error(`Server returned ${response.status} ${response.statusText}`);
+      // Đọc lỗi text nếu có
+      const errText = await response.text().catch(() => '');
+      console.error(`❌ Fetch Error: ${response.status} - ${errText.substring(0, 100)}`);
+      throw new Error(`Failed to fetch URL. Status: ${response.status}`);
     }
 
     const html = await response.text();
+
+    // 2. Parse HTML & Extract Text
     const $ = cheerio.load(html);
 
-    // Cleanup: Xóa rác nhưng giữ lại cấu trúc chính
-    $('script, style, noscript, iframe, svg, video, audio, link, meta').remove();
-    $('header, nav, footer, aside, [role="banner"], [role="navigation"]').remove();
-    $('.menu, .nav, .footer, .sidebar, .ads, .popup, .comment, .share').remove();
+    // --- CLEANUP STRATEGY (An toàn hơn) ---
+    // Xóa các thẻ rác cơ bản
+    $('script, style, noscript, iframe, svg, canvas, video, audio, link, meta').remove();
+    
+    // Xóa các phần cấu trúc trang không phải nội dung (Header, Nav, Footer, Sidebar)
+    $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
+    
+    // Xóa các element dựa trên class/id phổ biến
+    $('.menu, #menu, .nav, .navigation, #navigation, .footer, #footer, .sidebar, #sidebar').remove();
+    $('.cookie-banner, .popup, .modal, .advertisement, .ads, .social-share, .comments, .related-posts').remove();
 
-    // 1. Lấy Meta Data
+    // Lấy tiêu đề & mô tả
     const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
-    const description = $('meta[name="description"]').attr('content') || '';
+    const description = $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '';
 
-    // 2. Tìm Content chính
-    // Danh sách selector phổ biến cho bài viết/blog
-    const selectors = [
-      'article', 
-      '.entry-content', 
-      '.post-content', 
-      '.content-body',
-      'main', 
-      '#content', 
-      '.blog-post',
-      '.news-detail'
+    // --- CONTENT EXTRACTION STRATEGY ---
+    const contentSelectors = [
+      'article',                 // Chuẩn HTML5
+      '.entry-content',          // WordPress chuẩn
+      '.post-content',           // WordPress biến thể
+      '.content-body',           // Phổ biến
+      '.prose',                  // Tailwind typography
+      '[role="main"]',           // ARIA
+      '#content',                // Generic ID
+      'main',                    // HTML5 Main
     ];
 
     let contentEl = null;
-    for (const sel of selectors) {
-      if ($(sel).length > 0) {
-        // Kiểm tra xem vùng này có text đủ dài không
-        if ($(sel).text().trim().length > 200) {
-          contentEl = $(sel);
-          console.log(`✅ Found content via selector: ${sel}`);
-          break;
-        }
+
+    // Thử từng selector, lấy cái đầu tiên có chứa text đáng kể
+    for (const selector of contentSelectors) {
+      const el = $(selector);
+      if (el.length > 0 && el.text().trim().length > 200) {
+         contentEl = el;
+         console.log(`✅ Found content using selector: ${selector}`);
+         break;
       }
     }
 
-    // Fallback: Nếu không tìm thấy vùng content cụ thể, lấy tất cả thẻ <p> trong body
-    let textContent = '';
-    if (contentEl) {
-      textContent = contentEl.text();
-    } else {
-      console.log('⚠️ Fallback: Gathering all paragraphs');
-      $('body p').each((i, el) => {
-        const text = $(el).text().trim();
-        if (text.length > 20) textContent += text + '\n\n';
-      });
+    // Fallback: Nếu không tìm thấy vùng content đặc thù, lấy body
+    if (!contentEl) {
+       console.log('⚠️ No specific content container found, falling back to body');
+       contentEl = $('body');
     }
 
-    // Làm sạch text
-    textContent = textContent
-      .replace(/[\t\r]+/g, ' ')
-      .replace(/\n\s*\n/g, '\n\n') // Giữ lại cấu trúc đoạn văn
-      .trim();
+    // --- PRESERVE STRUCTURE STRATEGY ---
+    // Thay thế các thẻ block bằng dấu xuống dòng để giữ cấu trúc đoạn văn
+    contentEl.find('br').replaceWith('\n');
+    contentEl.find('p, div, h1, h2, h3, h4, h5, h6, li, tr').each((i, el) => {
+      $(el).after('\n');
+    });
 
+    // Clean text
+    let textContent = contentEl.text();
+    
+    // Xử lý khoảng trắng nhưng GIỮ LẠI xuống dòng
+    // 1. Thay thế nhiều dấu xuống dòng liên tiếp thành 2 dấu xuống dòng (tách đoạn)
+    textContent = textContent.replace(/\n\s*\n/g, '\n\n');
+    // 2. Xóa khoảng trắng đầu cuối mỗi dòng
+    textContent = textContent.split('\n').map(line => line.trim()).join('\n');
+    // 3. Xóa các dòng trống thừa thãi (quá 2 dòng)
+    textContent = textContent.replace(/\n{3,}/g, '\n\n').trim();
+
+    // Final Validation
     if (!textContent || textContent.length < 50) {
-       // Cố gắng lấy toàn bộ body text nếu vẫn thất bại
-       textContent = $('body').text().replace(/\s+/g, ' ').trim();
-       if (textContent.length < 50) {
-          return res.status(400).json({ error: 'Không lấy được nội dung (Content too short or protected).' });
-       }
+       console.error('❌ Content too short after scraping');
+       return res.status(400).json({ error: 'Không tìm thấy nội dung bài viết trên link này (Content too short).' });
     }
 
+    console.log('✅ Scrape success. Text length:', textContent.length);
+
+    // Trả về kết quả
     return res.status(200).json({
       success: true,
-      url,
-      title,
-      description,
+      url: url,
+      title: title,
+      description: description,
       content: textContent,
-      text: textContent
+      text: textContent // fallback support
     });
 
   } catch (error) {
-    console.error(`❌ Scrape Failed: ${error.message}`);
-    const status = error.message.includes('400') ? 400 : 500;
-    return res.status(status).json({ success: false, error: error.message });
+    console.error('❌ Scrape error:', error.message);
+    const status = error.message.includes('Failed to fetch') ? 400 : 500;
+    return res.status(status).json({
+      success: false,
+      error: error.message || 'Failed to scrape website'
+    });
   }
 };
