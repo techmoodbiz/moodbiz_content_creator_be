@@ -30,12 +30,12 @@ module.exports = async function handler(req, res) {
     // CORS
     const allowedOrigin = req.headers.origin;
     const whitelist = [
-        'https://moodbiz---rbac.web.app',
-        'http://localhost:5000',
-        'http://localhost:3000',
-        'http://127.0.0.1:5500',
-        'http://localhost:5500',
-        'https://brandchecker.moodbiz.agency'
+        "https://moodbiz---rbac.web.app",
+        "http://localhost:5000",
+        "http://localhost:3000",
+        "http://127.0.0.1:5500",
+        "https://brandchecker.moodbiz.agency",
+        "https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog",
     ];
 
     if (whitelist.includes(allowedOrigin)) {
