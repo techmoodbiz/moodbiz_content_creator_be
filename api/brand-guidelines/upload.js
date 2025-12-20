@@ -1,4 +1,3 @@
-
 // api/brand-guidelines/upload.js
 const admin = require('firebase-admin');
 const busboy = require('busboy');
@@ -19,15 +18,8 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
 module.exports = async function handler(req, res) {
-    const allowedOrigin = req.headers.origin;
-    const whitelist = [
-        "https://moodbiz---rbac.web.app",
-        "http://localhost:5000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5173",
-        "https://brandchecker.moodbiz.agency"
-    ];
-    if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    // CORS: Cho phép tất cả các nguồn
+    res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 

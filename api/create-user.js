@@ -21,20 +21,8 @@ const auth = admin.auth();
 
 // ===== HANDLER =====
 module.exports = async function handler(req, res) {
-    // ===== CORS =====
-    const origin = req.headers.origin;
-    const allowedOrigins = [
-        "https://moodbiz---rbac.web.app",
-        "http://localhost:3000",
-        "http://localhost:5000",
-        "http://127.0.0.1:5173",
-        "https://brandchecker.moodbiz.agency"
-    ];
-
-    if (allowedOrigins.includes(origin)) {
-        res.setHeader("Access-Control-Allow-Origin", origin);
-        res.setHeader("Vary", "Origin");
-    }
+    // ===== CORS: Cho phép tất cả các nguồn =====
+    res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
     res.setHeader(
         "Access-Control-Allow-Headers",
