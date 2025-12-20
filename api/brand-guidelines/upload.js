@@ -25,8 +25,7 @@ module.exports = async function handler(req, res) {
         "http://localhost:5000",
         "http://localhost:3000",
         "http://127.0.0.1:5500",
-        "https://brandchecker.moodbiz.agency",
-        "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"
+        "https://brandchecker.moodbiz.agency"
     ];
     if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');

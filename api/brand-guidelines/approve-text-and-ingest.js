@@ -28,18 +28,10 @@ function chunkText(text, chunkSize = 1000, overlap = 150) {
 }
 
 module.exports = async function handler(req, res) {
-    const allowedOrigin = req.headers.origin;
-    const whitelist = [
-        "https://moodbiz---rbac.web.app",
-        "http://localhost:5000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5500",
-        "https://brandchecker.moodbiz.agency",
-        "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"
-    ];
-    if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    // Nới lỏng CORS để hỗ trợ môi trường dynamic origin
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -56,7 +48,7 @@ module.exports = async function handler(req, res) {
 
         const guideline = guidelineSnap.data();
         const text = guideline.guideline_text;
-        if (!text) return res.status(400).json({ error: 'No text content to ingest' });
+        if (!text) return res.status(400).json({ error: 'No text content to ingest. Hãy chắc chắn guideline_text đã được lưu.' });
 
         const chunks = chunkText(text);
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
@@ -70,6 +62,8 @@ module.exports = async function handler(req, res) {
                     body: JSON.stringify({ content: { parts: [{ text: chunk.text }] } })
                 });
                 const data = await response.json();
+                
+                if (data.error) throw new Error(data.error.message);
 
                 const chunkRef = guidelineRef.collection('chunks').doc();
                 batch.set(chunkRef, {
@@ -79,9 +73,9 @@ module.exports = async function handler(req, res) {
                     is_master_source: !!guideline.is_primary,
                     created_at: admin.firestore.FieldValue.serverTimestamp(),
                 });
-            } catch (err) {
-                console.error(`Embed error chunk ${idx}`, err);
-                // Vẫn lưu chunk không có embedding để fallback
+            } catch (err) { 
+                console.error(`Embed error chunk ${idx}:`, err.message);
+                // Fallback: lưu text không có embedding nếu API embedding lỗi
                 const chunkRef = guidelineRef.collection('chunks').doc();
                 batch.set(chunkRef, {
                     text: chunk.text,
@@ -103,6 +97,7 @@ module.exports = async function handler(req, res) {
         res.status(200).json({ success: true, message: `Text guideline processed into ${chunks.length} chunks` });
 
     } catch (e) {
+        console.error('API Error:', e);
         res.status(500).json({ error: 'Server error', message: e.message });
     }
 };

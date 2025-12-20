@@ -29,7 +29,6 @@ function cosineSimilarity(vecA, vecB) {
 
 async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12) {
   try {
-    // Lấy tất cả guideline ĐÃ DUYỆT của brand
     const guidelinesSnap = await db.collection("brand_guidelines")
       .where("brand_id", "==", brandId)
       .where("status", "==", "approved")
@@ -41,7 +40,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
     for (const guideDoc of guidelinesSnap.docs) {
       const guideData = guideDoc.data();
       const chunksSnap = await guideDoc.ref.collection("chunks").get();
-
+      
       chunksSnap.forEach(cDoc => {
         const cData = cDoc.data();
         allChunks.push({
@@ -58,7 +57,6 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
     if (queryEmbedding) {
       const ranked = allChunks.map(chunk => {
         const similarity = cosineSimilarity(queryEmbedding, chunk.embedding);
-        // Ưu tiên Master Guideline bằng cách cộng thêm trọng số score
         const finalScore = similarity + (chunk.isPrimary ? 0.15 : 0);
         return { ...chunk, finalScore };
       });
@@ -75,35 +73,31 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
 }
 
 module.exports = async function handler(req, res) {
-  const allowedOrigin = req.headers.origin;
-  const whitelist = ["https://moodbiz---rbac.web.app", "http://localhost:5000", "http://localhost:3000", "https://brandchecker.moodbiz.agency", "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"];
-  if (whitelist.includes(allowedOrigin)) res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
-  if (req.method === "OPTIONS") return res.status(200).end();
-  if (req.method !== "POST") return res.status(405).json({ error: "Only POST allowed" });
+    if (req.method === "OPTIONS") return res.status(200).end();
+    if (req.method !== "POST") return res.status(405).json({ error: "Only POST allowed" });
 
-  try {
-    const { brand, topic, platform, userText, systemPrompt } = req.body;
-    const apiKey = process.env.GEMINI_API_KEY;
-
-    // 1. Get query embedding
-    let queryEmbedding = null;
     try {
-      const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: { parts: [{ text: `${topic} ${platform}` }] } })
-      });
-      const embedData = await embedRes.json();
-      queryEmbedding = embedData.embedding?.values;
-    } catch (e) { }
+        const { brand, topic, platform, userText, systemPrompt } = req.body;
+        const apiKey = process.env.GEMINI_API_KEY;
 
-    // 2. Consolidated RAG Context
-    const ragContext = await getConsolidatedContext(brand.id, queryEmbedding);
+        let queryEmbedding = null;
+        try {
+            const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ content: { parts: [{ text: `${topic} ${platform}` }] } })
+            });
+            const embedData = await embedRes.json();
+            queryEmbedding = embedData.embedding?.values;
+        } catch (e) {}
 
-    const finalPrompt = `
+        const ragContext = await getConsolidatedContext(brand.id, queryEmbedding);
+
+        const finalPrompt = `
 Bạn là chuyên gia Content của ${brand.name}.
 Dựa trên bộ Knowledge Base (đã được tổng hợp từ Master Guideline và các tài liệu bổ trợ) dưới đây:
 
@@ -126,21 +120,21 @@ ${userText ? `Ghi chú: ${userText}` : ""}
 ${systemPrompt}
 `;
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ contents: [{ parts: [{ text: finalPrompt }] }] })
-    });
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ contents: [{ parts: [{ text: finalPrompt }] }] })
+        });
 
-    const data = await response.json();
-    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI không thể phản hồi.";
+        const data = await response.json();
+        const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI không thể phản hồi.";
 
-    res.status(200).json({
-      result: resultText,
-      citations: ragContext ? ["Knowledge Base Consolidated"] : []
-    });
+        res.status(200).json({
+            result: resultText,
+            citations: ragContext ? ["Knowledge Base Consolidated"] : []
+        });
 
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 };

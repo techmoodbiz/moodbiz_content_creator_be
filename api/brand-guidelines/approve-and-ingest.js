@@ -32,17 +32,9 @@ function chunkText(text, chunkSize = 1000, overlap = 150) {
 }
 
 module.exports = async function handler(req, res) {
-    const allowedOrigin = req.headers.origin;
-    const whitelist = [
-        "https://moodbiz---rbac.web.app",
-        "http://localhost:5000",
-        "http://localhost:3000",
-        "https://brandchecker.moodbiz.agency",
-        "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"
-    ];
-    if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -86,7 +78,7 @@ module.exports = async function handler(req, res) {
                     body: JSON.stringify({ content: { parts: [{ text: chunk.text }] } })
                 });
                 const data = await response.json();
-
+                
                 const chunkRef = guidelineRef.collection('chunks').doc();
                 batch.set(chunkRef, {
                     text: chunk.text,
@@ -95,7 +87,7 @@ module.exports = async function handler(req, res) {
                     is_master_source: !!guideline.is_primary,
                     created_at: admin.firestore.FieldValue.serverTimestamp(),
                 });
-            } catch (err) {
+            } catch (err) { 
                 console.error(`Embed error chunk ${idx}`, err);
                 const chunkRef = guidelineRef.collection('chunks').doc();
                 batch.set(chunkRef, {
@@ -111,7 +103,7 @@ module.exports = async function handler(req, res) {
         await Promise.all(embeddingPromises);
         batch.update(guidelineRef, {
             status: 'approved',
-            guideline_text: text.substring(0, 10000),
+            guideline_text: text.substring(0, 10000), 
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
 
