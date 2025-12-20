@@ -1,8 +1,8 @@
+
 // api/rag-generate.js
 const fetch = require("node-fetch");
 const admin = require("firebase-admin");
 
-// Initialize Firebase Admin
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert({
@@ -16,322 +16,131 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-/**
- * Calculate cosine similarity between two vectors
- */
 function cosineSimilarity(vecA, vecB) {
-  if (vecA.length !== vecB.length) return 0;
-
-  let dotProduct = 0;
-  let normA = 0;
-  let normB = 0;
-
+  if (!vecA || !vecB || vecA.length !== vecB.length) return 0;
+  let dotProduct = 0, normA = 0, normB = 0;
   for (let i = 0; i < vecA.length; i++) {
     dotProduct += vecA[i] * vecB[i];
     normA += vecA[i] * vecA[i];
     normB += vecB[i] * vecB[i];
   }
-
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
-/**
- * SIMPLE RAG: Retrieve all guideline chunks (no semantic search)
- * Used as fallback when embedding API quota exceeded
- */
-async function getGuidelinesSimple(brandId) {
+async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12) {
   try {
-    console.log(`[Simple RAG] Fetching guidelines for brand: ${brandId}`);
-
-    // Get approved guidelines
-    const guidelinesSnapshot = await db
-      .collection("brand_guidelines")
+    // Lấy tất cả guideline ĐÃ DUYỆT của brand
+    const guidelinesSnap = await db.collection("brand_guidelines")
       .where("brand_id", "==", brandId)
       .where("status", "==", "approved")
       .get();
 
-    if (guidelinesSnapshot.empty) {
-      console.log(`[Simple RAG] No approved guidelines found for brand: ${brandId}`);
-      return "";
-    }
+    if (guidelinesSnap.empty) return "";
 
-    console.log(`[Simple RAG] Found ${guidelinesSnapshot.size} approved guidelines`);
+    let allChunks = [];
+    for (const guideDoc of guidelinesSnap.docs) {
+      const guideData = guideDoc.data();
+      const chunksSnap = await guideDoc.ref.collection("chunks").get();
 
-    // Collect all chunks from all guidelines
-    const allChunksText = [];
-
-    for (const guidelineDoc of guidelinesSnapshot.docs) {
-      const guideline = guidelineDoc.data();
-
-      // Get chunks subcollection
-      const chunksSnapshot = await guidelineDoc.ref.collection("chunks").get();
-
-      if (!chunksSnapshot.empty) {
-        console.log(`[Simple RAG] - ${guideline.file_name}: ${chunksSnapshot.size} chunks`);
-
-        chunksSnapshot.forEach((chunkDoc) => {
-          const chunk = chunkDoc.data();
-          if (chunk.text) {
-            allChunksText.push(chunk.text);
-          }
+      chunksSnap.forEach(cDoc => {
+        const cData = cDoc.data();
+        allChunks.push({
+          text: cData.text,
+          embedding: cData.embedding,
+          isPrimary: !!guideData.is_primary,
+          source: guideData.file_name
         });
-      }
+      });
     }
 
-    const context = allChunksText.join("\n\n");
-    console.log(`[Simple RAG] Total context length: ${context.length} chars`);
+    if (allChunks.length === 0) return "";
 
-    return context;
+    if (queryEmbedding) {
+      const ranked = allChunks.map(chunk => {
+        const similarity = cosineSimilarity(queryEmbedding, chunk.embedding);
+        // Ưu tiên Master Guideline bằng cách cộng thêm trọng số score
+        const finalScore = similarity + (chunk.isPrimary ? 0.15 : 0);
+        return { ...chunk, finalScore };
+      });
+
+      ranked.sort((a, b) => b.finalScore - a.finalScore);
+      return ranked.slice(0, topK).map(c => `[Nguồn: ${c.source}${c.isPrimary ? ' - MASTER' : ''}] ${c.text}`).join("\n\n---\n\n");
+    }
+
+    return allChunks.slice(0, 10).map(c => c.text).join("\n\n");
   } catch (err) {
-    console.error("[Simple RAG] Error fetching guidelines:", err);
-    return "";
-  }
-}
-
-/**
- * VECTOR RAG: Semantic search using cosine similarity
- */
-async function getGuidelinesVector(brandId, query, topK = 5) {
-  try {
-    console.log(`[Vector RAG] Searching for brand: ${brandId}`);
-    console.log(`[Vector RAG] Query: "${query}"`);
-
-    // 1. Get query embedding
-    const apiKey = process.env.GEMINI_API_KEY;
-    const embedResponse = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          content: { parts: [{ text: query }] }
-        })
-      }
-    );
-
-    const embedData = await embedResponse.json();
-    if (embedData.error) {
-      console.error("[Vector RAG] Embedding error:", embedData.error);
-      console.warn("[Vector RAG] Falling back to Simple RAG...");
-      return null; // Return null to trigger Simple RAG fallback
-    }
-
-    const queryEmbedding = embedData.embedding?.values;
-    if (!queryEmbedding) {
-      console.error("[Vector RAG] No embedding returned");
-      console.warn("[Vector RAG] Falling back to Simple RAG...");
-      return null; // Return null to trigger Simple RAG fallback
-    }
-
-    console.log(`[Vector RAG] Query embedding dimension: ${queryEmbedding.length}`);
-
-    // 2. Get approved guidelines
-    const guidelinesSnapshot = await db
-      .collection("brand_guidelines")
-      .where("brand_id", "==", brandId)
-      .where("status", "==", "approved")
-      .get();
-
-    if (guidelinesSnapshot.empty) {
-      console.log(`[Vector RAG] No approved guidelines found for brand: ${brandId}`);
-      return "";
-    }
-
-    console.log(`[Vector RAG] Found ${guidelinesSnapshot.size} approved guidelines`);
-
-    // 3. Collect all chunks with embeddings
-    const allChunks = [];
-
-    for (const guidelineDoc of guidelinesSnapshot.docs) {
-      const guideline = guidelineDoc.data();
-      const chunksSnapshot = await guidelineDoc.ref.collection("chunks").get();
-
-      if (!chunksSnapshot.empty) {
-        console.log(`[Vector RAG] - ${guideline.file_name}: ${chunksSnapshot.size} chunks`);
-
-        chunksSnapshot.forEach((chunkDoc) => {
-          const chunk = chunkDoc.data();
-          if (chunk.embedding && chunk.text) {
-            allChunks.push({
-              text: chunk.text,
-              embedding: chunk.embedding,
-              source: guideline.file_name,
-            });
-          }
-        });
-      }
-    }
-
-    if (allChunks.length === 0) {
-      console.log("[Vector RAG] No chunks with embeddings found");
-      return "";
-    }
-
-    console.log(`[Vector RAG] Total chunks to search: ${allChunks.length}`);
-
-    // 4. Calculate similarities and rank
-    const rankedChunks = allChunks.map((chunk) => ({
-      ...chunk,
-      similarity: cosineSimilarity(queryEmbedding, chunk.embedding),
-    }));
-
-    rankedChunks.sort((a, b) => b.similarity - a.similarity);
-
-    // 5. Get top-K relevant chunks
-    const topChunks = rankedChunks.slice(0, topK);
-
-    console.log(`[Vector RAG] Top ${topK} chunks:`);
-    topChunks.forEach((chunk, idx) => {
-      console.log(`  ${idx + 1}. Similarity: ${chunk.similarity.toFixed(4)} - ${chunk.source}`);
-    });
-
-    const context = topChunks.map((chunk) => chunk.text).join("\n\n---\n\n");
-    console.log(`[Vector RAG] Final context length: ${context.length} chars`);
-
-    return context;
-  } catch (err) {
-    console.error("[Vector RAG] Error:", err);
+    console.error("Context error", err);
     return "";
   }
 }
 
 module.exports = async function handler(req, res) {
-  // CORS headers
   const allowedOrigin = req.headers.origin;
-  const whitelist = [
-    "https://moodbiz---rbac.web.app",
-    "http://localhost:5000",
-    "http://localhost:3000",
-    "http://127.0.0.1:5500",
-    "https://brandchecker.moodbiz.agency",
-"https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog"
-  ];
-  if (whitelist.includes(allowedOrigin)) {
-    res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
-  }
-
+  const whitelist = ["https://moodbiz---rbac.web.app", "http://localhost:5000", "http://localhost:3000", "https://brandchecker.moodbiz.agency", "https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog"];
+  if (whitelist.includes(allowedOrigin)) res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Max-Age", "86400");
 
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-
-  if (req.method !== "POST") {
-    return res.status(405).json({ error: "Only POST allowed" });
-  }
+  if (req.method === "OPTIONS") return res.status(200).end();
+  if (req.method !== "POST") return res.status(405).json({ error: "Only POST allowed" });
 
   try {
-    const { brand, topic, platform, userText, systemPrompt } = req.body || {};
+    const { brand, topic, platform, userText, systemPrompt } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
-    if (!apiKey) {
-      return res.status(500).json({ error: "Missing GEMINI_API_KEY" });
-    }
-
-    console.log(`\n========== RAG GENERATE START ==========`);
-    console.log(`Brand: ${brand?.name || "Unknown"} (${brand?.id})`);
-    console.log(`Topic: ${topic}`);
-    console.log(`Platform: ${platform}`);
-    if (brand?.commonMistakes?.length) {
-      console.log(`Common Mistakes: ${brand.commonMistakes.map(m => m.type).join(", ")}`);
-    }
-
-    // 🎯 RAG: Try Vector RAG first, fallback to Simple RAG if embedding quota exceeded
-    let guidelineContext = "";
-    let ragMethod = "none";
-
-    if (brand?.id) {
-      const query = `${topic} - ${platform}`;
-
-      // Try Vector RAG first
-      guidelineContext = await getGuidelinesVector(brand.id, query, 5);
-
-      // If Vector RAG returns null (embedding quota issue), fallback to Simple RAG
-      if (guidelineContext === null) {
-        console.log(`🔄 Fallback: Switching to Simple RAG...`);
-        guidelineContext = await getGuidelinesSimple(brand.id);
-        ragMethod = guidelineContext ? "simple" : "none";
-      } else {
-        ragMethod = guidelineContext ? "vector" : "none";
-      }
-    }
-
-    console.log(`📊 RAG Method Used: ${ragMethod.toUpperCase()}`);
-
-    // Format common mistakes for display
-    const commonMistakesText = (brand?.commonMistakes?.length > 0)
-      ? brand.commonMistakes
-        .map(m => `- ${m.type} (${m.count} lần)`)
-        .join('\n')
-      : 'Chưa có dữ liệu lỗi';
-
-    // Build final prompt with guideline context
-    const finalPrompt = `
-Bạn là trợ lý nội dung cho thương hiệu ${brand?.name || ""}.
-
-${guidelineContext ? `
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 BRAND GUIDELINES (Tài liệu chuẩn chính thức)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-${guidelineContext}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-⚠️ QUAN TRỌNG: Tuân thủ tuyệt đối các hướng dẫn trong Brand Guidelines ở trên.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-` : ""}
-[THÔNG TIN THƯƠNG HIỆU]
-Tính cách: ${brand?.personality || ""}
-Giọng văn: ${brand?.voice || ""}
-
-[CẦN TRÁNH - CÁC LỖI THƯỜNG GẶP]
-Dựa trên lịch sử audit, hãy tránh những lỗi sau:
-${commonMistakesText}
-
-[YÊU CẦU CONTENT]
-Kênh đăng: ${platform || ""}
-Chủ đề: ${topic || ""}
-Yêu cầu chi tiết: ${userText || ""}
-
-${systemPrompt || ""}
-`;
-
-    console.log(`Final prompt length: ${finalPrompt.length} chars`);
-
-    // Call Gemini API
-    const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=" + apiKey,
-      {
+    // 1. Get query embedding
+    let queryEmbedding = null;
+    try {
+      const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: finalPrompt }] }]
-        })
-      }
-    );
+        body: JSON.stringify({ content: { parts: [{ text: `${topic} ${platform}` }] } })
+      });
+      const embedData = await embedRes.json();
+      queryEmbedding = embedData.embedding?.values;
+    } catch (e) { }
+
+    // 2. Consolidated RAG Context
+    const ragContext = await getConsolidatedContext(brand.id, queryEmbedding);
+
+    const finalPrompt = `
+Bạn là chuyên gia Content của ${brand.name}.
+Dựa trên bộ Knowledge Base (đã được tổng hợp từ Master Guideline và các tài liệu bổ trợ) dưới đây:
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📚 BRAND KNOWLEDGE BASE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${ragContext || "Dùng hồ sơ mặc định bên dưới."}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[HỒ SƠ CHIẾN LƯỢC]
+Tính cách: ${brand.personality}
+Giọng văn: ${brand.voice}
+USP: ${brand.usp?.join(", ")}
+
+[YÊU CẦU]
+Chủ đề: ${topic}
+Kênh: ${platform}
+${userText ? `Ghi chú: ${userText}` : ""}
+
+${systemPrompt}
+`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contents: [{ parts: [{ text: finalPrompt }] }] })
+    });
 
     const data = await response.json();
-    if (data.error) {
-      console.error("Gemini error:", data.error);
-      return res.status(500).json({ error: data.error.message || "Gemini error" });
-    }
-
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "No response";
-
-    console.log(`Response length: ${text.length} chars`);
-    console.log(`========== RAG GENERATE END ==========\n`);
+    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI không thể phản hồi.";
 
     res.status(200).json({
-      result: text,
-      hasGuidelines: !!guidelineContext,
-      guidelineLength: guidelineContext.length,
-      ragMethod: ragMethod
+      result: resultText,
+      citations: ragContext ? ["Knowledge Base Consolidated"] : []
     });
+
   } catch (e) {
-    console.error("ERR_rag_generate:", e);
-    res.status(500).json({ error: "Server error", message: e.message });
+    res.status(500).json({ error: e.message });
   }
 };

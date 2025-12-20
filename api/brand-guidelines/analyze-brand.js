@@ -1,253 +1,101 @@
-import * as cheerio from "cheerio";
 
-export default async function handler(req, res) {
-    // CORS
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET,OPTIONS,PATCH,DELETE,POST,PUT"
-    );
-    res.setHeader(
-        "Access-Control-Allow-Headers",
-        "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
-    );
+// api/brand-guidelines/upload.js
+const admin = require('firebase-admin');
+const busboy = require('busboy');
 
-    if (req.method === "OPTIONS") {
-        res.status(200).end();
-        return;
-    }
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            type: 'service_account',
+            project_id: process.env.FIREBASE_PROJECT_ID,
+            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        }),
+        storageBucket: process.env.GOOGLE_STORAGE_BUCKET,
+    });
+}
 
-    if (req.method !== "POST") {
-        return res.status(405).json({ error: "Method not allowed" });
-    }
+const db = admin.firestore();
+const bucket = admin.storage().bucket();
+
+module.exports = async function handler(req, res) {
+    const allowedOrigin = req.headers.origin;
+    const whitelist = [
+        "https://moodbiz---rbac.web.app",
+        "http://localhost:5000",
+        "http://localhost:3000",
+        "http://127.0.0.1:5500",
+        "https://brandchecker.moodbiz.agency",
+        "https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog"
+    ];
+    if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { websiteUrl } = req.body;
-
-        if (!websiteUrl) {
-            return res.status(400).json({ error: "Website URL is required" });
+        const contentType = req.headers['content-type'] || '';
+        if (!contentType.startsWith('multipart/form-data')) {
+            return res.status(400).json({ error: 'Content-Type must be multipart/form-data' });
         }
 
-        // Validate URL
-        let url;
-        try {
-            url = new URL(websiteUrl);
-        } catch (e) {
-            return res.status(400).json({ error: "Invalid URL format" });
-        }
+        const bb = busboy({ headers: req.headers });
+        const fields = {};
+        let fileBuffer = null;
+        let fileInfo = null;
 
-        console.log(`Analyzing brand from: ${websiteUrl}`);
-
-        // STEP 1: fetch website
-        const response = await fetch(websiteUrl, {
-            headers: {
-                "User-Agent":
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            },
+        bb.on('field', (fieldname, val) => { fields[fieldname] = val; });
+        bb.on('file', (fieldname, file, info) => {
+            if (fieldname !== 'file') { file.resume(); return; }
+            fileInfo = { filename: info.filename, mimeType: info.mimeType };
+            const chunks = [];
+            file.on('data', (data) => chunks.push(data));
+            file.on('end', () => { fileBuffer = Buffer.concat(chunks); });
         });
 
-        if (!response.ok) {
-            return res.status(400).json({
-                error: `Website chặn bot (status ${response.status}). Vui lòng chọn website khác hoặc nhập brief tay.`,
-            });
-        }
+        bb.on('finish', async () => {
+            try {
+                if (!fileBuffer || !fileInfo) return res.status(400).json({ error: 'No file uploaded' });
+                const brandId = fields.brandId;
+                if (!brandId) return res.status(400).json({ error: 'brandId is required' });
 
-        const html = await response.text();
-        const $ = cheerio.load(html);
+                const timestamp = Date.now();
+                const uploadPath = `brands/${brandId}/guidelines/${timestamp}-${fileInfo.filename}`;
+                const uploadFile = bucket.file(uploadPath);
 
-        // STEP 2: Extract basic information (giữ logic gốc)
-        const extractedData = {
-            title: $("title").text() || "",
-            metaDescription: $('meta[name="description"]').attr("content") || "",
-            metaKeywords: $('meta[name="keywords"]').attr("content") || "",
-            ogTitle: $('meta[property="og:title"]').attr("content") || "",
-            ogDescription: $('meta[property="og:description"]').attr("content") || "",
-            mainText: "",
-            aboutText: "",
-            headings: [],
-        };
+                await uploadFile.save(fileBuffer, { metadata: { contentType: fileInfo.mimeType } });
+                const [url] = await uploadFile.getSignedUrl({ action: 'read', expires: '2099-12-31' });
 
-        // Main text
-        $("p, h1, h2, h3, li").each((i, elem) => {
-            if (i < 50) {
-                const text = $(elem).text().trim();
-                if (text.length > 10) {
-                    extractedData.mainText += text + " ";
-                }
+                // STRUCTURED ID: GUIDE_[BRAND_ID]_[TIMESTAMP]
+                const guideId = `GUIDE_${brandId}_${timestamp}`;
+                const now = admin.firestore.FieldValue.serverTimestamp();
+
+                await db.collection('brand_guidelines').doc(guideId).set({
+                    id: guideId,
+                    brand_id: brandId,
+                    type: fields.type || 'guideline',
+                    description: fields.description || '',
+                    file_name: fileInfo.filename,
+                    file_url: url,
+                    file_type: fileInfo.mimeType || '',
+                    storage_path: uploadPath,
+                    status: 'pending',
+                    is_primary: false, // Default not primary
+                    uploaded_by: fields.uploadedBy || null,
+                    uploaded_role: fields.uploadedRole || null,
+                    created_at: now,
+                    updated_at: now,
+                });
+
+                return res.status(200).json({ success: true, id: guideId, fileUrl: url });
+            } catch (err) {
+                return res.status(500).json({ error: 'Server error', message: err.message });
             }
         });
-
-        // About section
-        $("section, div, article").each((i, elem) => {
-            const text = $(elem).text();
-            const innerHtml = $(elem).html() || "";
-            if (
-                innerHtml.toLowerCase().includes("about") ||
-                text.toLowerCase().includes("about us") ||
-                text.toLowerCase().includes("về chúng tôi")
-            ) {
-                extractedData.aboutText += $(elem).text().substring(0, 1000) + " ";
-            }
-        });
-
-        // Headings
-        $("h1, h2, h3").each((i, elem) => {
-            if (i < 10) {
-                extractedData.headings.push($(elem).text().trim());
-            }
-        });
-
-        // Trim to avoid token limits
-        extractedData.mainText = extractedData.mainText.substring(0, 3000);
-        extractedData.aboutText = extractedData.aboutText.substring(0, 1500);
-
-        console.log("Extracted data:", {
-            title: extractedData.title,
-            textLength: extractedData.mainText.length,
-            aboutLength: extractedData.aboutText.length,
-            headings: extractedData.headings.length,
-        });
-
-        // STEP 3: Call Gemini via REST API (giống audit.js)
-        const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            console.error("GEMINI_API_KEY not found in environment");
-            return res.status(500).json({ error: "API key not configured" });
-        }
-
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
-
-        const prompt = `
-Analyze the following website content and extract brand guideline information.
-
-Return ONLY a valid JSON object with EXACTLY these camelCase keys:
-{
-  "brandName": "Company/Brand name",
-  "industry": "Industry/Sector",
-  "targetAudience": "Target audience description",
-  "tone": "Communication tone (formal/casual/friendly/professional)",
-  "coreValues": ["Value 1", "Value 2", "Value 3"],
-  "keywords": ["keyword1", "keyword2", "keyword3"],
-  "visualStyle": "Description of visual style",
-  "dos": ["Do this", "Do that"],
-  "donts": ["Don't do this", "Don't do that"],
-  "summary": "Brief brand summary"
-}
-
-Do NOT add, remove, or rename any keys. Use exactly these key names.
-
-Website Data:
-- Title: ${extractedData.title}
-- Meta Description: ${extractedData.metaDescription}
-- Main Content: ${extractedData.mainText}
-- About Section: ${extractedData.aboutText}
-- Key Headings: ${extractedData.headings.join(" | ")}
-`;
-
-        const requestBody = {
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-                responseMimeType: "application/json",
-            },
-        };
-
-        console.log("Calling Gemini API for analyze-brand...");
-        const aiRes = await fetch(geminiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
-        });
-
-        if (!aiRes.ok) {
-            const errorText = await aiRes.text();
-            console.error("Gemini API error (analyze-brand):", aiRes.status, errorText);
-            return res.status(aiRes.status).json({
-                error: "Gemini API error",
-                status: aiRes.status,
-                details: errorText,
-            });
-        }
-
-        const data = await aiRes.json();
-        const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!textResult) {
-            console.error("No text result from Gemini (analyze-brand)");
-            return res.status(500).json({ error: "No response from AI" });
-        }
-
-        // Clean & parse JSON
-        let brandGuideline = null;
-        try {
-            const cleaned = textResult
-                .trim()
-                .replace(/```json?/gi, '')
-                .replace(/```/g, '')
-                .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
-            brandGuideline = JSON.parse(cleaned);
-        } catch (parseError) {
-            console.warn("ANALYZE JSON parse failed at BE:", parseError.message);
-            return res.status(500).json({
-                error: "Failed to parse AI response",
-                details: parseError.message,
-                rawResponse: textResult,
-            });
-        }
-
-        console.log(
-            "ANALYZE brandGuideline:",
-            JSON.stringify(brandGuideline, null, 2)
-        );
-
-        // Normalize schema + metadata
-        const responseData = {
-            brandName:
-                brandGuideline?.brandName ||
-                brandGuideline?.brand_name ||
-                brandGuideline?.name ||
-                extractedData.title ||
-                "",
-
-            industry: brandGuideline?.industry || "",
-            targetAudience:
-                brandGuideline?.targetAudience ||
-                brandGuideline?.target_audience ||
-                "",
-            tone: brandGuideline?.tone || "",
-            coreValues:
-                brandGuideline?.coreValues ||
-                brandGuideline?.core_values ||
-                [],
-            keywords: brandGuideline?.keywords || [],
-            visualStyle:
-                brandGuideline?.visualStyle ||
-                brandGuideline?.visual_style ||
-                "",
-            dos: brandGuideline?.dos || [],
-            donts: brandGuideline?.donts || [],
-            summary: brandGuideline?.summary || "",
-
-            sourceUrl: websiteUrl,
-            analyzedAt: new Date().toISOString(),
-            method: "autogenerated",
-            confidence: "medium",
-        };
-
-        console.log(
-            "ANALYZE responseData:",
-            JSON.stringify(responseData, null, 2)
-        );
-        console.log("Successfully analyzed brand:", responseData.brandName);
-
-        return res.status(200).json({ success: true, data: responseData });
-    } catch (error) {
-        console.error("Error analyzing brand:", error);
-        return res.status(500).json({
-            error: "Failed to analyze brand",
-            details: error.message,
-        });
+        req.pipe(bb);
+    } catch (e) {
+        return res.status(500).json({ error: 'Server error', message: e.message });
     }
-}
+};

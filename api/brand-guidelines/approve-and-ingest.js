@@ -1,336 +1,253 @@
-// api/brand-guidelines/approve-and-ingest.js
+import * as cheerio from "cheerio";
 
-const admin = require('firebase-admin');
-const { GoogleGenerativeAI } = require('@google/generative-ai');
-const mammoth = require('mammoth');
-const pdfParse = require('pdf-parse');
-
-// Khởi tạo Firebase Admin
-if (!admin.apps.length) {
-    admin.initializeApp({
-        credential: admin.credential.cert({
-            type: 'service_account',
-            project_id: process.env.FIREBASE_PROJECT_ID,
-            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-            client_email: process.env.FIREBASE_CLIENT_EMAIL,
-        }),
-        storageBucket: process.env.GOOGLE_STORAGE_BUCKET,
-    });
-}
-
-const db = admin.firestore();
-const bucket = admin.storage().bucket();
-
-// Khởi tạo Gemini AI
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-/**
- * Approve guideline và ingest vào RAG system:
- * 1. Download file từ Storage
- * 2. Parse document (PDF/DOCX)
- * 3. Chunk text thành các đoạn nhỏ
- * 4. Generate embeddings cho mỗi chunk
- * 5. Lưu chunks + embeddings vào Firestore
- * 6. Update status = 'approved'
- */
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     // CORS
-    const allowedOrigin = req.headers.origin;
-    const whitelist = [
-        "https://moodbiz---rbac.web.app",
-        "http://localhost:5000",
-        "http://localhost:3000",
-        "http://127.0.0.1:5500",
-        "https://brandchecker.moodbiz.agency",
-        "https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog",
-    ];
+    res.setHeader("Access-Control-Allow-Credentials", "true");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.setHeader(
+        "Access-Control-Allow-Methods",
+        "GET,OPTIONS,PATCH,DELETE,POST,PUT"
+    );
+    res.setHeader(
+        "Access-Control-Allow-Headers",
+        "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
+    );
 
-    if (whitelist.includes(allowedOrigin)) {
-        res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
-    } else {
-        res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
-    res.setHeader('Access-Control-Max-Age', '86400');
-
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
+    if (req.method === "OPTIONS") {
+        res.status(200).end();
+        return;
     }
 
-    if (req.method !== 'POST') {
-        return res.status(405).json({ error: 'Method not allowed' });
+    if (req.method !== "POST") {
+        return res.status(405).json({ error: "Method not allowed" });
     }
 
     try {
-        const { guidelineId } = req.body;
+        const { websiteUrl } = req.body;
 
-        if (!guidelineId) {
-            return res.status(400).json({ error: 'guidelineId is required' });
+        if (!websiteUrl) {
+            return res.status(400).json({ error: "Website URL is required" });
         }
 
-        // 1. Lấy guideline doc từ Firestore
-        const guidelineRef = db.collection('brand_guidelines').doc(guidelineId);
-        const guidelineSnap = await guidelineRef.get();
-
-        if (!guidelineSnap.exists) {
-            return res.status(404).json({ error: 'Guideline not found' });
-        }
-
-        const guideline = guidelineSnap.data();
-
-        // 2. Download file từ Storage
-        // Parse file path từ signed URL
-        // URL format: https://storage.googleapis.com/.../o/brands%2F...%2Ffile.pdf?...
-        // Use storage_path field directly
-        const filePath = guideline.storage_path;
-        if (!filePath) {
-            return res.status(400).json({
-                error: 'Missing storage_path. Please re-upload the file with updated backend.'
-            });
-        }
-        console.log('Downloading file from Storage:', filePath);
-        const file = bucket.file(filePath);
-        const [fileBuffer] = await file.download();
-
-        // 3. Parse document dựa vào file type
-        let text = '';
-        const fileType = guideline.file_type || '';
-
-        if (fileType.includes('pdf')) {
-            // Dùng pdf-parse cho môi trường Node
-            const data = await pdfParse(fileBuffer);
-            text = data.text || '';
-        } else if (
-            fileType.includes('word') ||
-            fileType.includes('document') ||
-            guideline.file_name.endsWith('.docx')
-        ) {
-            const result = await mammoth.extractRawText({ buffer: fileBuffer });
-            text = result.value;
-        } else {
-            text = fileBuffer.toString('utf-8');
-        }
-
-
-        // 4. Chunk text (split thành các đoạn ~800 chars với overlap)
-        const chunks = chunkText(text, 800, 100);
-
-        console.log(`Parsed ${chunks.length} chunks from ${guideline.file_name}`);
-
-        // 5. Generate embeddings cho từng chunk bằng Gemini
-        const model = genAI.getGenerativeModel({ model: 'embedding-001' });
-
-        const embeddingPromises = chunks.map(async (chunk, idx) => {
-            try {
-                const result = await model.embedContent(chunk.text);
-                const embedding = result.embedding.values;
-
-                return {
-                    chunk_index: idx,
-                    text: chunk.text,
-                    embedding: embedding, // Array of floats
-                    char_start: chunk.start,
-                    char_end: chunk.end,
-                    has_embedding: true, // Track embedding status
-                };
-            } catch (err) {
-                console.error(`Error embedding chunk ${idx}:`, err.message || err);
-                // Still save chunk without embedding for Simple RAG fallback
-                return {
-                    chunk_index: idx,
-                    text: chunk.text,
-                    embedding: null, // No embedding available
-                    char_start: chunk.start,
-                    char_end: chunk.end,
-                    has_embedding: false, // Mark as missing embedding
-                };
-            }
-        });
-
-        const allChunks = await Promise.all(embeddingPromises);
-        const chunksWithEmbedding = allChunks.filter(c => c.has_embedding);
-
-        console.log(`Embedding results: ${chunksWithEmbedding.length}/${allChunks.length} chunks successfully embedded`);
-        if (chunksWithEmbedding.length < allChunks.length) {
-            console.warn(`⚠️ ${allChunks.length - chunksWithEmbedding.length} chunks saved WITHOUT embeddings (Simple RAG only)`);
-        }
-
-        // 6. Lưu chunks vào Firestore subcollection (cả có và không có embedding)
-        const batch = db.batch();
-
-        allChunks.forEach((chunk) => {
-            const chunkRef = guidelineRef.collection('chunks').doc();
-            batch.set(chunkRef, {
-                ...chunk,
-                created_at: admin.firestore.FieldValue.serverTimestamp(),
-            });
-        });
-
-        // 7. Update guideline status
-        batch.update(guidelineRef, {
-            status: 'approved',
-            ingested_at: admin.firestore.FieldValue.serverTimestamp(),
-            updated_at: admin.firestore.FieldValue.serverTimestamp(),
-            chunk_count: allChunks.length,
-            chunks_with_embedding: chunksWithEmbedding.length,
-            chunks_without_embedding: allChunks.length - chunksWithEmbedding.length,
-        });
-
-        await batch.commit();
-
-        // Try to extract brand fields (personality/core values and tone) from the parsed text
+        // Validate URL
+        let url;
         try {
-            const extracted = extractBrandFieldsFromText(text);
-            const brandId = guideline.brand_id || guideline.brandid || null;
-            console.log('DEBUG BRAND EXTRACT FROM FILE', {
-                brandId,
-                extracted,
-                textSample: text.slice(0, 600),
-            });
-
-            if (brandId && (extracted.personality || extracted.voice || extracted.brandName)) {
-                const updateData = {};
-                if (extracted.personality) updateData.personality = extracted.personality;
-                if (extracted.voice) updateData.voice = extracted.voice;
-                if (extracted.brandName) updateData.name = extracted.brandName;
-                updateData.last_guideline_updated_at = admin.firestore.FieldValue.serverTimestamp();
-                await db.collection('brands').doc(brandId).set(updateData, { merge: true });
-                console.log('Updated brand with extracted guideline fields for', brandId);
-            }
-        } catch (err) {
-            console.warn('Failed to extract/update brand fields after ingest:', err.message || err);
+            url = new URL(websiteUrl);
+        } catch (e) {
+            return res.status(400).json({ error: "Invalid URL format" });
         }
 
-        return res.status(200).json({
-            success: true,
-            message: `Ingested ${allChunks.length} chunks (${chunksWithEmbedding.length} with embeddings, ${allChunks.length - chunksWithEmbedding.length} without)`,
-            guidelineId,
-            chunkCount: allChunks.length,
-            chunksWithEmbedding: chunksWithEmbedding.length,
-            chunksWithoutEmbedding: allChunks.length - chunksWithEmbedding.length,
-        });
-    } catch (e) {
-        console.error('ERR/brand-guidelines-approve-and-ingest:', e);
-        return res.status(500).json({
-            error: 'Server error',
-            message: e.message,
-        });
-    }
-};
+        console.log(`Analyzing brand from: ${websiteUrl}`);
 
-/**
- * Chunk text thành các đoạn nhỏ với overlap
- * @param {string} text - Text cần chunk
- * @param {number} chunkSize - Kích thước mỗi chunk (chars)
- * @param {number} overlap - Số chars overlap giữa các chunk
- * @returns {Array<{text: string, start: number, end: number}>}
- */
-function chunkText(text, chunkSize = 800, overlap = 100) {
-    const chunks = [];
-    let start = 0;
-
-    while (start < text.length) {
-        const end = Math.min(start + chunkSize, text.length);
-        const chunkText = text.slice(start, end);
-
-        chunks.push({
-            text: chunkText.trim(),
-            start,
-            end,
+        // STEP 1: fetch website
+        const response = await fetch(websiteUrl, {
+            headers: {
+                "User-Agent":
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            },
         });
 
-        start += chunkSize - overlap;
-    }
+        if (!response.ok) {
+            return res.status(400).json({
+                error: `Website chặn bot (status ${response.status}). Vui lòng chọn website khác hoặc nhập brief tay.`,
+            });
+        }
 
-    return chunks;
+        const html = await response.text();
+        const $ = cheerio.load(html);
+
+        // STEP 2: Extract basic information (giữ logic gốc)
+        const extractedData = {
+            title: $("title").text() || "",
+            metaDescription: $('meta[name="description"]').attr("content") || "",
+            metaKeywords: $('meta[name="keywords"]').attr("content") || "",
+            ogTitle: $('meta[property="og:title"]').attr("content") || "",
+            ogDescription: $('meta[property="og:description"]').attr("content") || "",
+            mainText: "",
+            aboutText: "",
+            headings: [],
+        };
+
+        // Main text
+        $("p, h1, h2, h3, li").each((i, elem) => {
+            if (i < 50) {
+                const text = $(elem).text().trim();
+                if (text.length > 10) {
+                    extractedData.mainText += text + " ";
+                }
+            }
+        });
+
+        // About section
+        $("section, div, article").each((i, elem) => {
+            const text = $(elem).text();
+            const innerHtml = $(elem).html() || "";
+            if (
+                innerHtml.toLowerCase().includes("about") ||
+                text.toLowerCase().includes("about us") ||
+                text.toLowerCase().includes("về chúng tôi")
+            ) {
+                extractedData.aboutText += $(elem).text().substring(0, 1000) + " ";
+            }
+        });
+
+        // Headings
+        $("h1, h2, h3").each((i, elem) => {
+            if (i < 10) {
+                extractedData.headings.push($(elem).text().trim());
+            }
+        });
+
+        // Trim to avoid token limits
+        extractedData.mainText = extractedData.mainText.substring(0, 3000);
+        extractedData.aboutText = extractedData.aboutText.substring(0, 1500);
+
+        console.log("Extracted data:", {
+            title: extractedData.title,
+            textLength: extractedData.mainText.length,
+            aboutLength: extractedData.aboutText.length,
+            headings: extractedData.headings.length,
+        });
+
+        // STEP 3: Call Gemini via REST API (giống audit.js)
+        const apiKey = process.env.GEMINI_API_KEY;
+        if (!apiKey) {
+            console.error("GEMINI_API_KEY not found in environment");
+            return res.status(500).json({ error: "API key not configured" });
+        }
+
+        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+
+        const prompt = `
+Analyze the following website content and extract brand guideline information.
+
+Return ONLY a valid JSON object with EXACTLY these camelCase keys:
+{
+  "brandName": "Company/Brand name",
+  "industry": "Industry/Sector",
+  "targetAudience": "Target audience description",
+  "tone": "Communication tone (formal/casual/friendly/professional)",
+  "coreValues": ["Value 1", "Value 2", "Value 3"],
+  "keywords": ["keyword1", "keyword2", "keyword3"],
+  "visualStyle": "Description of visual style",
+  "dos": ["Do this", "Do that"],
+  "donts": ["Don't do this", "Don't do that"],
+  "summary": "Brief brand summary"
 }
 
-/**
- * Try to parse simple guideline structure to extract brandName, personality (core values), and voice (tone)
- * Works for both auto-generated guideline text and parsed file text when those sections exist.
- */
-// Dùng chung cho cả file-based và text-based guideline
-function extractBrandFieldsFromText(text) {
-    if (!text || typeof text !== 'string') return {};
+Do NOT add, remove, or rename any keys. Use exactly these key names.
 
-    const res = { brandName: null, personality: null, voice: null };
+Website Data:
+- Title: ${extractedData.title}
+- Meta Description: ${extractedData.metaDescription}
+- Main Content: ${extractedData.mainText}
+- About Section: ${extractedData.aboutText}
+- Key Headings: ${extractedData.headings.join(" | ")}
+`;
 
-    try {
-        // 1. Tên brand
-        // Ví dụ:
-        //  - "# MOODBIZ Brand Guidelines"
-        //  - "Phân tích brand: MOODBIZ"
-        //  - "Brand: MOODBIZ"
-        const brandMatch =
-            text.match(/^#\s*(.+?)\s+Brand Guidelines/i) ||
-            text.match(/Phân tích brand[:\-]\s*([^\n\r]+)/i) ||
-            text.match(/Brand[:\-]\s*([^\n\r]+)/i);
+        const requestBody = {
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.7,
+                maxOutputTokens: 8192,
+                responseMimeType: "application/json",
+            },
+        };
 
-        if (brandMatch) {
-            res.brandName = (brandMatch[1] || brandMatch[0]).trim();
+        console.log("Calling Gemini API for analyze-brand...");
+        const aiRes = await fetch(geminiUrl, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(requestBody),
+        });
+
+        if (!aiRes.ok) {
+            const errorText = await aiRes.text();
+            console.error("Gemini API error (analyze-brand):", aiRes.status, errorText);
+            return res.status(aiRes.status).json({
+                error: "Gemini API error",
+                status: aiRes.status,
+                details: errorText,
+            });
         }
 
-        // 2. Giọng văn / Tone of Voice
-        // Hỗ trợ cả tiếng Anh & tiếng Việt:
-        //  - "**Tone:** Ấm áp, gần gũi"
-        //  - "Tone: ...", "Tone of voice: ..."
-        //  - "Giọng văn: ...", "Giọng điệu thương hiệu: ..."
-        const toneMatch =
-            text.match(/\*\*Tone:\*\*\s*([^\n\r]+)/i) ||
-            text.match(/\bTone of voice[:\-]\s*([^\n\r]+)/i) ||
-            text.match(/\bTone[:\-]\s*([^\n\r]+)/i) ||
-            text.match(/Giọng (văn|điệu)[^\n\r:]*[:\-]\s*([^\n\r]+)/i);
+        const data = await aiRes.json();
+        const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
-        if (toneMatch) {
-            res.voice = (toneMatch[1] || toneMatch[2]).trim();
+        if (!textResult) {
+            console.error("No text result from Gemini (analyze-brand)");
+            return res.status(500).json({ error: "No response from AI" });
         }
 
-        // 3. Tính cách / Core values / Personality
-        // Tìm block:
-        //  - "## Core Values"
-        //  - "## Tính cách thương hiệu"
-        //  - "## Giá trị cốt lõi"
-        const coreBlock =
-            text.match(/##\s*Core Values[\s\S]*?(?=\n##|\n#|$)/i) ||
-            text.match(/##\s*Tính cách thương hiệu[\s\S]*?(?=\n##|\n#|$)/i) ||
-            text.match(/##\s*Giá trị cốt lõi[\s\S]*?(?=\n##|\n#|$)/i);
-
-        if (coreBlock) {
-            const lines = coreBlock[0].split(/\r?\n/).map(l => l.trim());
-            const values = [];
-            for (const l of lines) {
-                // bỏ dòng tiêu đề
-                if (/Core Values|Tính cách thương hiệu|Giá trị cốt lõi/i.test(l)) continue;
-                // lấy nội dung sau bullet "- ", "* ", "1) ", "1. "
-                const m = l.match(/^[-\*\d\.\)\s]*\s*(.+)$/);
-                if (m && m[1] && m[1].length > 1) {
-                    values.push(m[1].trim());
-                }
-            }
-            if (values.length) {
-                res.personality = values.join(', ');
-            }
-        } else {
-            // Fallback: "Core values: ..." / "Tính cách: ..."
-            const inlineCore =
-                text.match(/Core values[:\-]\s*([\s\S]{0,300})/i) ||
-                text.match(/Giá trị cốt lõi[:\-]\s*([\s\S]{0,300})/i) ||
-                text.match(/Tính cách thương hiệu[:\-]\s*([\s\S]{0,300})/i);
-
-            if (inlineCore) {
-                const vals = inlineCore[1]
-                    .split(/[-\n,]/)
-                    .map(s => s.trim())
-                    .filter(Boolean);
-                if (vals.length) {
-                    res.personality = vals.join(', ');
-                }
-            }
+        // Clean & parse JSON
+        let brandGuideline = null;
+        try {
+            const cleaned = textResult
+                .trim()
+                .replace(/```json?/gi, '')
+                .replace(/```/g, '')
+                .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
+            brandGuideline = JSON.parse(cleaned);
+        } catch (parseError) {
+            console.warn("ANALYZE JSON parse failed at BE:", parseError.message);
+            return res.status(500).json({
+                error: "Failed to parse AI response",
+                details: parseError.message,
+                rawResponse: textResult,
+            });
         }
-    } catch (e) {
-        console.warn('extractBrandFieldsFromText error', e.message || e);
+
+        console.log(
+            "ANALYZE brandGuideline:",
+            JSON.stringify(brandGuideline, null, 2)
+        );
+
+        // Normalize schema + metadata
+        const responseData = {
+            brandName:
+                brandGuideline?.brandName ||
+                brandGuideline?.brand_name ||
+                brandGuideline?.name ||
+                extractedData.title ||
+                "",
+
+            industry: brandGuideline?.industry || "",
+            targetAudience:
+                brandGuideline?.targetAudience ||
+                brandGuideline?.target_audience ||
+                "",
+            tone: brandGuideline?.tone || "",
+            coreValues:
+                brandGuideline?.coreValues ||
+                brandGuideline?.core_values ||
+                [],
+            keywords: brandGuideline?.keywords || [],
+            visualStyle:
+                brandGuideline?.visualStyle ||
+                brandGuideline?.visual_style ||
+                "",
+            dos: brandGuideline?.dos || [],
+            donts: brandGuideline?.donts || [],
+            summary: brandGuideline?.summary || "",
+
+            sourceUrl: websiteUrl,
+            analyzedAt: new Date().toISOString(),
+            method: "autogenerated",
+            confidence: "medium",
+        };
+
+        console.log(
+            "ANALYZE responseData:",
+            JSON.stringify(responseData, null, 2)
+        );
+        console.log("Successfully analyzed brand:", responseData.brandName);
+
+        return res.status(200).json({ success: true, data: responseData });
+    } catch (error) {
+        console.error("Error analyzing brand:", error);
+        return res.status(500).json({
+            error: "Failed to analyze brand",
+            details: error.message,
+        });
     }
-
-    return res;
 }
