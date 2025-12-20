@@ -1,253 +1,124 @@
-import * as cheerio from "cheerio";
 
-export default async function handler(req, res) {
-    // CORS
-    res.setHeader("Access-Control-Allow-Credentials", "true");
-    res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader(
-        "Access-Control-Allow-Methods",
-        "GET,OPTIONS,PATCH,DELETE,POST,PUT"
-    );
-    res.setHeader(
-        "Access-Control-Allow-Headers",
-        "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization"
-    );
+// api/brand-guidelines/approve-and-ingest.js
+const admin = require('firebase-admin');
+const fetch = require('node-fetch');
+const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
 
-    if (req.method === "OPTIONS") {
-        res.status(200).end();
-        return;
+if (!admin.apps.length) {
+    admin.initializeApp({
+        credential: admin.credential.cert({
+            type: 'service_account',
+            project_id: process.env.FIREBASE_PROJECT_ID,
+            private_key: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            client_email: process.env.FIREBASE_CLIENT_EMAIL,
+        }),
+        storageBucket: process.env.GOOGLE_STORAGE_BUCKET,
+    });
+}
+
+const db = admin.firestore();
+const bucket = admin.storage().bucket();
+
+function chunkText(text, chunkSize = 1000, overlap = 150) {
+    const chunks = [];
+    let start = 0;
+    while (start < text.length) {
+        const end = Math.min(start + chunkSize, text.length);
+        chunks.push({ text: text.slice(start, end).trim(), start, end });
+        start += chunkSize - overlap;
     }
+    return chunks;
+}
 
-    if (req.method !== "POST") {
-        return res.status(405).json({ error: "Method not allowed" });
-    }
+module.exports = async function handler(req, res) {
+    const allowedOrigin = req.headers.origin;
+    const whitelist = [
+        "https://moodbiz---rbac.web.app",
+        "http://localhost:5000",
+        "http://localhost:3000",
+        "https://brandchecker.moodbiz.agency",
+        "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"
+    ];
+    if (whitelist.includes(allowedOrigin)) res.setHeader('Access-Control-Allow-Origin', allowedOrigin);
+    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+    if (req.method === 'OPTIONS') return res.status(200).end();
+    if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const { websiteUrl } = req.body;
-
-        if (!websiteUrl) {
-            return res.status(400).json({ error: "Website URL is required" });
-        }
-
-        // Validate URL
-        let url;
-        try {
-            url = new URL(websiteUrl);
-        } catch (e) {
-            return res.status(400).json({ error: "Invalid URL format" });
-        }
-
-        console.log(`Analyzing brand from: ${websiteUrl}`);
-
-        // STEP 1: fetch website
-        const response = await fetch(websiteUrl, {
-            headers: {
-                "User-Agent":
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-            },
-        });
-
-        if (!response.ok) {
-            return res.status(400).json({
-                error: `Website chặn bot (status ${response.status}). Vui lòng chọn website khác hoặc nhập brief tay.`,
-            });
-        }
-
-        const html = await response.text();
-        const $ = cheerio.load(html);
-
-        // STEP 2: Extract basic information (giữ logic gốc)
-        const extractedData = {
-            title: $("title").text() || "",
-            metaDescription: $('meta[name="description"]').attr("content") || "",
-            metaKeywords: $('meta[name="keywords"]').attr("content") || "",
-            ogTitle: $('meta[property="og:title"]').attr("content") || "",
-            ogDescription: $('meta[property="og:description"]').attr("content") || "",
-            mainText: "",
-            aboutText: "",
-            headings: [],
-        };
-
-        // Main text
-        $("p, h1, h2, h3, li").each((i, elem) => {
-            if (i < 50) {
-                const text = $(elem).text().trim();
-                if (text.length > 10) {
-                    extractedData.mainText += text + " ";
-                }
-            }
-        });
-
-        // About section
-        $("section, div, article").each((i, elem) => {
-            const text = $(elem).text();
-            const innerHtml = $(elem).html() || "";
-            if (
-                innerHtml.toLowerCase().includes("about") ||
-                text.toLowerCase().includes("about us") ||
-                text.toLowerCase().includes("về chúng tôi")
-            ) {
-                extractedData.aboutText += $(elem).text().substring(0, 1000) + " ";
-            }
-        });
-
-        // Headings
-        $("h1, h2, h3").each((i, elem) => {
-            if (i < 10) {
-                extractedData.headings.push($(elem).text().trim());
-            }
-        });
-
-        // Trim to avoid token limits
-        extractedData.mainText = extractedData.mainText.substring(0, 3000);
-        extractedData.aboutText = extractedData.aboutText.substring(0, 1500);
-
-        console.log("Extracted data:", {
-            title: extractedData.title,
-            textLength: extractedData.mainText.length,
-            aboutLength: extractedData.aboutText.length,
-            headings: extractedData.headings.length,
-        });
-
-        // STEP 3: Call Gemini via REST API (giống audit.js)
+        const { guidelineId } = req.body;
         const apiKey = process.env.GEMINI_API_KEY;
-        if (!apiKey) {
-            console.error("GEMINI_API_KEY not found in environment");
-            return res.status(500).json({ error: "API key not configured" });
+
+        const guidelineRef = db.collection('brand_guidelines').doc(guidelineId);
+        const guidelineSnap = await guidelineRef.get();
+        if (!guidelineSnap.exists) return res.status(404).json({ error: 'Guideline not found' });
+
+        const guideline = guidelineSnap.data();
+        const filePath = guideline.storage_path;
+        if (!filePath) return res.status(400).json({ error: 'Missing storage_path' });
+
+        const file = bucket.file(filePath);
+        const [fileBuffer] = await file.download();
+
+        let text = '';
+        const fileType = guideline.file_type || '';
+        if (fileType.includes('pdf')) {
+            const data = await pdfParse(fileBuffer);
+            text = data.text || '';
+        } else if (fileType.includes('word') || guideline.file_name.endsWith('.docx')) {
+            const result = await mammoth.extractRawText({ buffer: fileBuffer });
+            text = result.value;
+        } else {
+            text = fileBuffer.toString('utf-8');
         }
 
-        const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-09-2025:generateContent?key=${apiKey}`;
+        const chunks = chunkText(text);
+        const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
-        const prompt = `
-Analyze the following website content and extract brand guideline information.
+        const batch = db.batch();
+        const embeddingPromises = chunks.map(async (chunk, idx) => {
+            try {
+                const response = await fetch(embedUrl, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ content: { parts: [{ text: chunk.text }] } })
+                });
+                const data = await response.json();
 
-Return ONLY a valid JSON object with EXACTLY these camelCase keys:
-{
-  "brandName": "Company/Brand name",
-  "industry": "Industry/Sector",
-  "targetAudience": "Target audience description",
-  "tone": "Communication tone (formal/casual/friendly/professional)",
-  "coreValues": ["Value 1", "Value 2", "Value 3"],
-  "keywords": ["keyword1", "keyword2", "keyword3"],
-  "visualStyle": "Description of visual style",
-  "dos": ["Do this", "Do that"],
-  "donts": ["Don't do this", "Don't do that"],
-  "summary": "Brief brand summary"
-}
-
-Do NOT add, remove, or rename any keys. Use exactly these key names.
-
-Website Data:
-- Title: ${extractedData.title}
-- Meta Description: ${extractedData.metaDescription}
-- Main Content: ${extractedData.mainText}
-- About Section: ${extractedData.aboutText}
-- Key Headings: ${extractedData.headings.join(" | ")}
-`;
-
-        const requestBody = {
-            contents: [{ parts: [{ text: prompt }] }],
-            generationConfig: {
-                temperature: 0.7,
-                maxOutputTokens: 8192,
-                responseMimeType: "application/json",
-            },
-        };
-
-        console.log("Calling Gemini API for analyze-brand...");
-        const aiRes = await fetch(geminiUrl, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(requestBody),
+                const chunkRef = guidelineRef.collection('chunks').doc();
+                batch.set(chunkRef, {
+                    text: chunk.text,
+                    embedding: data.embedding?.values || null,
+                    chunk_index: idx,
+                    is_master_source: !!guideline.is_primary,
+                    created_at: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            } catch (err) {
+                console.error(`Embed error chunk ${idx}`, err);
+                const chunkRef = guidelineRef.collection('chunks').doc();
+                batch.set(chunkRef, {
+                    text: chunk.text,
+                    embedding: null,
+                    chunk_index: idx,
+                    is_master_source: !!guideline.is_primary,
+                    created_at: admin.firestore.FieldValue.serverTimestamp(),
+                });
+            }
         });
 
-        if (!aiRes.ok) {
-            const errorText = await aiRes.text();
-            console.error("Gemini API error (analyze-brand):", aiRes.status, errorText);
-            return res.status(aiRes.status).json({
-                error: "Gemini API error",
-                status: aiRes.status,
-                details: errorText,
-            });
-        }
-
-        const data = await aiRes.json();
-        const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-
-        if (!textResult) {
-            console.error("No text result from Gemini (analyze-brand)");
-            return res.status(500).json({ error: "No response from AI" });
-        }
-
-        // Clean & parse JSON
-        let brandGuideline = null;
-        try {
-            const cleaned = textResult
-                .trim()
-                .replace(/```json?/gi, '')
-                .replace(/```/g, '')
-                .replace(/[\u0000-\u0008\u000B-\u000C\u000E-\u001F]/g, '');
-            brandGuideline = JSON.parse(cleaned);
-        } catch (parseError) {
-            console.warn("ANALYZE JSON parse failed at BE:", parseError.message);
-            return res.status(500).json({
-                error: "Failed to parse AI response",
-                details: parseError.message,
-                rawResponse: textResult,
-            });
-        }
-
-        console.log(
-            "ANALYZE brandGuideline:",
-            JSON.stringify(brandGuideline, null, 2)
-        );
-
-        // Normalize schema + metadata
-        const responseData = {
-            brandName:
-                brandGuideline?.brandName ||
-                brandGuideline?.brand_name ||
-                brandGuideline?.name ||
-                extractedData.title ||
-                "",
-
-            industry: brandGuideline?.industry || "",
-            targetAudience:
-                brandGuideline?.targetAudience ||
-                brandGuideline?.target_audience ||
-                "",
-            tone: brandGuideline?.tone || "",
-            coreValues:
-                brandGuideline?.coreValues ||
-                brandGuideline?.core_values ||
-                [],
-            keywords: brandGuideline?.keywords || [],
-            visualStyle:
-                brandGuideline?.visualStyle ||
-                brandGuideline?.visual_style ||
-                "",
-            dos: brandGuideline?.dos || [],
-            donts: brandGuideline?.donts || [],
-            summary: brandGuideline?.summary || "",
-
-            sourceUrl: websiteUrl,
-            analyzedAt: new Date().toISOString(),
-            method: "autogenerated",
-            confidence: "medium",
-        };
-
-        console.log(
-            "ANALYZE responseData:",
-            JSON.stringify(responseData, null, 2)
-        );
-        console.log("Successfully analyzed brand:", responseData.brandName);
-
-        return res.status(200).json({ success: true, data: responseData });
-    } catch (error) {
-        console.error("Error analyzing brand:", error);
-        return res.status(500).json({
-            error: "Failed to analyze brand",
-            details: error.message,
+        await Promise.all(embeddingPromises);
+        batch.update(guidelineRef, {
+            status: 'approved',
+            guideline_text: text.substring(0, 10000),
+            updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
+
+        await batch.commit();
+        res.status(200).json({ success: true, message: `File processed into ${chunks.length} chunks` });
+
+    } catch (e) {
+        res.status(500).json({ error: 'Server error', message: e.message });
     }
-}
+};
