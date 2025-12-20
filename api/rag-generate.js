@@ -76,7 +76,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
 
 module.exports = async function handler(req, res) {
   const allowedOrigin = req.headers.origin;
-  const whitelist = ["https://moodbiz---rbac.web.app", "http://localhost:5000", "http://localhost:3000", "https://brandchecker.moodbiz.agency", "https://435xm5ul0ruu0qcxop3r3r84lrj2zasb25u1s1hurqtb3wzs2l-h845251650.scf.usercontent.goog"];
+  const whitelist = ["https://moodbiz---rbac.web.app", "http://localhost:5000", "http://localhost:3000", "https://brandchecker.moodbiz.agency", "https://00qq6ierxfx8dtvvmt48sbwpz6gcyrf0rof91pgw06x3dcd27p-h845251650.scf.usercontent.goog"];
   if (whitelist.includes(allowedOrigin)) res.setHeader("Access-Control-Allow-Origin", allowedOrigin);
   res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
