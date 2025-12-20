@@ -15,7 +15,7 @@ module.exports = async function handler(req, res) {
     'https://moodbiz---rbac.web.app',
     'http://localhost:5000',
     'http://localhost:3000',
-    'http://127.0.0.1:5500',
+    'http://127.0.0.1:5173',
     'https://brandchecker.moodbiz.agency'
   ];
 
@@ -77,10 +77,10 @@ module.exports = async function handler(req, res) {
     // --- CLEANUP STRATEGY (An toàn hơn) ---
     // Xóa các thẻ rác cơ bản
     $('script, style, noscript, iframe, svg, canvas, video, audio, link, meta').remove();
-    
+
     // Xóa các phần cấu trúc trang không phải nội dung (Header, Nav, Footer, Sidebar)
     $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
-    
+
     // Xóa các element dựa trên class/id phổ biến
     $('.menu, #menu, .nav, .navigation, #navigation, .footer, #footer, .sidebar, #sidebar').remove();
     $('.cookie-banner, .popup, .modal, .advertisement, .ads, .social-share, .comments, .related-posts').remove();
@@ -107,16 +107,16 @@ module.exports = async function handler(req, res) {
     for (const selector of contentSelectors) {
       const el = $(selector);
       if (el.length > 0 && el.text().trim().length > 200) {
-         contentEl = el;
-         console.log(`✅ Found content using selector: ${selector}`);
-         break;
+        contentEl = el;
+        console.log(`✅ Found content using selector: ${selector}`);
+        break;
       }
     }
 
     // Fallback: Nếu không tìm thấy vùng content đặc thù, lấy body
     if (!contentEl) {
-       console.log('⚠️ No specific content container found, falling back to body');
-       contentEl = $('body');
+      console.log('⚠️ No specific content container found, falling back to body');
+      contentEl = $('body');
     }
 
     // --- PRESERVE STRUCTURE STRATEGY ---
@@ -128,7 +128,7 @@ module.exports = async function handler(req, res) {
 
     // Clean text
     let textContent = contentEl.text();
-    
+
     // Xử lý khoảng trắng nhưng GIỮ LẠI xuống dòng
     // 1. Thay thế nhiều dấu xuống dòng liên tiếp thành 2 dấu xuống dòng (tách đoạn)
     textContent = textContent.replace(/\n\s*\n/g, '\n\n');
@@ -139,8 +139,8 @@ module.exports = async function handler(req, res) {
 
     // Final Validation
     if (!textContent || textContent.length < 50) {
-       console.error('❌ Content too short after scraping');
-       return res.status(400).json({ error: 'Không tìm thấy nội dung bài viết trên link này (Content too short).' });
+      console.error('❌ Content too short after scraping');
+      return res.status(400).json({ error: 'Không tìm thấy nội dung bài viết trên link này (Content too short).' });
     }
 
     console.log('✅ Scrape success. Text length:', textContent.length);
