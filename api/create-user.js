@@ -1,7 +1,7 @@
+
 // api/create-user.js
 const admin = require("firebase-admin");
 
-// ===== INIT FIREBASE ADMIN =====
 if (!admin.apps.length) {
     try {
         admin.initializeApp({
@@ -19,16 +19,10 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const auth = admin.auth();
 
-// ===== HANDLER =====
 module.exports = async function handler(req, res) {
-    // ===== CORS: Cho phép tất cả các nguồn =====
     res.setHeader("Access-Control-Allow-Origin", "*");
-    res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-    res.setHeader(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization"
-    );
-    res.setHeader("Access-Control-Max-Age", "86400");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.setHeader("Access-Control-Allow-Headers", "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization");
 
     if (req.method === "OPTIONS") {
         return res.status(200).end();
@@ -64,26 +58,13 @@ module.exports = async function handler(req, res) {
         const { name, email, password, role, ownedBrandIds, assignedBrandIds } = req.body;
 
         if (!name || !email || !password) {
-            return res
-                .status(400)
-                .json({ error: "Missing required fields: name, email, password" });
-        }
-
-        if (!role || !["admin", "brand_owner", "content_creator"].includes(role)) {
-            return res.status(400).json({ error: "Invalid role" });
-        }
-
-        if (currentUserData.role === "brand_owner" && role !== "content_creator") {
-            return res
-                .status(403)
-                .json({ error: "Brand Owner can only create Content Creator" });
+            return res.status(400).json({ error: "Missing required fields: name, email, password" });
         }
 
         const newUser = await auth.createUser({
             email,
             password,
             displayName: name,
-            emailVerified: false,
         });
 
         await db.collection("users").doc(newUser.uid).set({
@@ -100,23 +81,8 @@ module.exports = async function handler(req, res) {
             success: true,
             message: `Created user ${name} successfully`,
             userId: newUser.uid,
-            user: { uid: newUser.uid, email, name, role },
         });
     } catch (error) {
-        console.error("Error creating user:", error);
-
-        if (error.code === "auth/email-already-exists") {
-            return res.status(400).json({ error: "Email already exists" });
-        }
-        if (error.code === "auth/invalid-email") {
-            return res.status(400).json({ error: "Invalid email format" });
-        }
-        if (error.code === "auth/weak-password") {
-            return res
-                .status(400)
-                .json({ error: "Password too weak (minimum 6 characters)" });
-        }
-
         return res.status(500).json({ error: "Server error: " + error.message });
     }
 };

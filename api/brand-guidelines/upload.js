@@ -1,3 +1,4 @@
+
 // api/brand-guidelines/upload.js
 const admin = require('firebase-admin');
 const busboy = require('busboy');
@@ -19,18 +20,13 @@ const bucket = admin.storage().bucket();
 
 module.exports = async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
     try {
-        const contentType = req.headers['content-type'] || '';
-        if (!contentType.startsWith('multipart/form-data')) {
-            return res.status(400).json({ error: 'Content-Type must be multipart/form-data' });
-        }
-
         const bb = busboy({ headers: req.headers });
         const fields = {};
         let fileBuffer = null;
@@ -59,23 +55,15 @@ module.exports = async function handler(req, res) {
                 const [url] = await uploadFile.getSignedUrl({ action: 'read', expires: '2099-12-31' });
 
                 const guideId = `GUIDE_${brandId}_${timestamp}`;
-                const now = admin.firestore.FieldValue.serverTimestamp();
-
                 await db.collection('brand_guidelines').doc(guideId).set({
                     id: guideId,
                     brand_id: brandId,
                     type: fields.type || 'guideline',
-                    description: fields.description || '',
                     file_name: fileInfo.filename,
                     file_url: url,
-                    file_type: fileInfo.mimeType || '',
                     storage_path: uploadPath,
                     status: 'pending',
-                    is_primary: false,
-                    uploaded_by: fields.uploadedBy || null,
-                    uploaded_role: fields.uploadedRole || null,
-                    created_at: now,
-                    updated_at: now,
+                    created_at: admin.firestore.FieldValue.serverTimestamp(),
                 });
 
                 return res.status(200).json({ success: true, id: guideId, fileUrl: url });
