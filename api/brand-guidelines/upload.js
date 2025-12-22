@@ -18,10 +18,9 @@ const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
 module.exports = async function handler(req, res) {
-    // CORS: Cho phép tất cả các nguồn
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
 
     if (req.method === 'OPTIONS') return res.status(200).end();
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
@@ -59,7 +58,6 @@ module.exports = async function handler(req, res) {
                 await uploadFile.save(fileBuffer, { metadata: { contentType: fileInfo.mimeType } });
                 const [url] = await uploadFile.getSignedUrl({ action: 'read', expires: '2099-12-31' });
 
-                // STRUCTURED ID: GUIDE_[BRAND_ID]_[TIMESTAMP]
                 const guideId = `GUIDE_${brandId}_${timestamp}`;
                 const now = admin.firestore.FieldValue.serverTimestamp();
 
@@ -73,7 +71,7 @@ module.exports = async function handler(req, res) {
                     file_type: fileInfo.mimeType || '',
                     storage_path: uploadPath,
                     status: 'pending',
-                    is_primary: false, // Default not primary
+                    is_primary: false,
                     uploaded_by: fields.uploadedBy || null,
                     uploaded_role: fields.uploadedRole || null,
                     created_at: now,

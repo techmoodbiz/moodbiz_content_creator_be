@@ -60,7 +60,7 @@ module.exports = async function handler(req, res) {
       console.error(`❌ Fetch Error: ${response.status}`);
       // Nếu lỗi 403, có thể do website chặn Bot. Trả về thông báo chi tiết cho FE.
       if (response.status === 403) {
-        throw new Error("Website này chặn quyền truy cập tự động. Vui lòng copy text thủ công.");
+         throw new Error("Website này chặn quyền truy cập tự động. Vui lòng copy text thủ công.");
       }
       throw new Error(`Không thể truy cập URL (Status: ${response.status})`);
     }
@@ -73,7 +73,7 @@ module.exports = async function handler(req, res) {
     $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
 
     const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
-
+    
     // Thu thập nội dung text
     let textContent = '';
     $('p, h1, h2, h3, h4, h5, h6, li, article').each((i, el) => {
@@ -84,8 +84,8 @@ module.exports = async function handler(req, res) {
     });
 
     if (!textContent || textContent.length < 100) {
-      // Fallback nếu không tìm thấy thẻ p/h1...
-      textContent = $('body').text().substring(0, 5000);
+       // Fallback nếu không tìm thấy thẻ p/h1...
+       textContent = $('body').text().substring(0, 5000);
     }
 
     return res.status(200).json({
