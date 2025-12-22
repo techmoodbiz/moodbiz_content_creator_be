@@ -34,7 +34,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
       .where("status", "==", "approved")
       .get();
 
-    if (guidelinesSnap.empty) return "";
+    if (guidelinesSnap.empty) return { text: "", sources: [] };
 
     let allChunks = [];
     for (const guideDoc of guidelinesSnap.docs) {
@@ -52,7 +52,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
       });
     }
 
-    if (allChunks.length === 0) return "";
+    if (allChunks.length === 0) return { text: "", sources: [] };
 
     if (queryEmbedding) {
       const ranked = allChunks.map(chunk => {
@@ -62,13 +62,18 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
       });
 
       ranked.sort((a, b) => b.finalScore - a.finalScore);
-      return ranked.slice(0, topK).map(c => `[Nguồn: ${c.source}${c.isPrimary ? ' - MASTER' : ''}] ${c.text}`).join("\n\n---\n\n");
+      const topChunks = ranked.slice(0, topK);
+      
+      const contextText = topChunks.map(c => `[Nguồn: ${c.source}${c.isPrimary ? ' - MASTER' : ''}] ${c.text}`).join("\n\n---\n\n");
+      const uniqueSources = [...new Set(topChunks.map(c => c.source))];
+      
+      return { text: contextText, sources: uniqueSources };
     }
 
-    return allChunks.slice(0, 10).map(c => c.text).join("\n\n");
+    return { text: allChunks.slice(0, 10).map(c => c.text).join("\n\n"), sources: [] };
   } catch (err) {
     console.error("Context error", err);
-    return "";
+    return { text: "", sources: [] };
   }
 }
 
@@ -95,7 +100,7 @@ module.exports = async function handler(req, res) {
             queryEmbedding = embedData.embedding?.values;
         } catch (e) {}
 
-        const ragContext = await getConsolidatedContext(brand.id, queryEmbedding);
+        const { text: ragContext, sources } = await getConsolidatedContext(brand.id, queryEmbedding);
 
         const finalPrompt = `
 Bạn là chuyên gia Content của ${brand.name}.
@@ -131,7 +136,7 @@ ${systemPrompt}
 
         res.status(200).json({
             result: resultText,
-            citations: ragContext ? ["Knowledge Base Consolidated"] : []
+            citations: sources
         });
 
     } catch (e) {
