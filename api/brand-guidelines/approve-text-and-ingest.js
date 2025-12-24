@@ -52,7 +52,6 @@ module.exports = async function handler(req, res) {
         const chunks = chunkText(text);
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
-        const batch = db.batch();
         const embeddingPromises = chunks.map(async (chunk, idx) => {
             try {
                 const response = await fetch(embedUrl, {
@@ -62,27 +61,47 @@ module.exports = async function handler(req, res) {
                 });
                 const data = await response.json();
                 
-                const chunkRef = guidelineRef.collection('chunks').doc();
-                batch.set(chunkRef, {
+                return {
                     text: chunk.text,
                     embedding: data.embedding?.values || null,
                     chunk_index: idx,
-                    is_master_source: !!guideline.is_primary,
-                    created_at: admin.firestore.FieldValue.serverTimestamp(),
-                });
+                };
             } catch (err) { 
-                const chunkRef = guidelineRef.collection('chunks').doc();
-                batch.set(chunkRef, {
+                console.error(`Error embedding text chunk ${idx}:`, err);
+                return {
                     text: chunk.text,
                     embedding: null,
                     chunk_index: idx,
-                    is_master_source: !!guideline.is_primary,
-                    created_at: admin.firestore.FieldValue.serverTimestamp(),
-                });
+                };
             }
         });
 
-        await Promise.all(embeddingPromises);
+        const results = await Promise.all(embeddingPromises);
+
+        // Firestore Write Batching (Limit: 500 ops per batch)
+        const BATCH_SIZE = 400; 
+        let batch = db.batch();
+        let opCounter = 0;
+
+        for (const chunkData of results) {
+            const chunkRef = guidelineRef.collection('chunks').doc();
+            batch.set(chunkRef, {
+                text: chunkData.text,
+                embedding: chunkData.embedding,
+                chunk_index: chunkData.chunk_index,
+                is_master_source: !!guideline.is_primary,
+                created_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            opCounter++;
+
+            if (opCounter >= BATCH_SIZE) {
+                await batch.commit();
+                batch = db.batch();
+                opCounter = 0;
+            }
+        }
+
+        // Final batch update
         batch.update(guidelineRef, {
             status: 'approved',
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
@@ -92,6 +111,7 @@ module.exports = async function handler(req, res) {
         res.status(200).json({ success: true, message: `Text processed into ${chunks.length} chunks` });
 
     } catch (e) {
+        console.error("Text Ingest Error:", e);
         res.status(500).json({ error: 'Server error', message: e.message });
     }
 };

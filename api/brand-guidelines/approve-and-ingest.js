@@ -55,21 +55,28 @@ module.exports = async function handler(req, res) {
         const [fileBuffer] = await file.download();
 
         let text = '';
-        const fileType = guideline.file_type || '';
-        if (fileType.includes('pdf')) {
+        // Robust file type detection based on extension
+        const fileName = (guideline.file_name || '').toLowerCase();
+
+        if (fileName.endsWith('.pdf')) {
             const data = await pdfParse(fileBuffer);
             text = data.text || '';
-        } else if (fileType.includes('word') || guideline.file_name.endsWith('.docx')) {
+        } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
             const result = await mammoth.extractRawText({ buffer: fileBuffer });
             text = result.value;
         } else {
+            // Default to text parsing for md, txt, or unknown types
             text = fileBuffer.toString('utf-8');
+        }
+
+        if (!text || text.trim().length === 0) {
+            return res.status(400).json({ error: 'Không thể trích xuất nội dung văn bản từ file này.' });
         }
 
         const chunks = chunkText(text);
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
-        const batch = db.batch();
+        // Generate embeddings in parallel
         const embeddingPromises = chunks.map(async (chunk, idx) => {
             try {
                 const response = await fetch(embedUrl, {
@@ -79,37 +86,59 @@ module.exports = async function handler(req, res) {
                 });
                 const data = await response.json();
                 
-                const chunkRef = guidelineRef.collection('chunks').doc();
-                batch.set(chunkRef, {
+                return {
                     text: chunk.text,
                     embedding: data.embedding?.values || null,
                     chunk_index: idx,
-                    is_master_source: !!guideline.is_primary,
-                    created_at: admin.firestore.FieldValue.serverTimestamp(),
-                });
+                };
             } catch (err) { 
-                const chunkRef = guidelineRef.collection('chunks').doc();
-                batch.set(chunkRef, {
+                console.error(`Error embedding chunk ${idx}:`, err);
+                return {
                     text: chunk.text,
                     embedding: null,
                     chunk_index: idx,
-                    is_master_source: !!guideline.is_primary,
-                    created_at: admin.firestore.FieldValue.serverTimestamp(),
-                });
+                };
             }
         });
 
-        await Promise.all(embeddingPromises);
+        const results = await Promise.all(embeddingPromises);
+
+        // Firestore Write Batching (Limit: 500 ops per batch)
+        const BATCH_SIZE = 400; 
+        let batch = db.batch();
+        let opCounter = 0;
+
+        for (const chunkData of results) {
+            const chunkRef = guidelineRef.collection('chunks').doc();
+            batch.set(chunkRef, {
+                text: chunkData.text,
+                embedding: chunkData.embedding,
+                chunk_index: chunkData.chunk_index,
+                is_master_source: !!guideline.is_primary,
+                created_at: admin.firestore.FieldValue.serverTimestamp(),
+            });
+            opCounter++;
+
+            if (opCounter >= BATCH_SIZE) {
+                await batch.commit();
+                batch = db.batch(); // Start new batch
+                opCounter = 0;
+            }
+        }
+
+        // Final batch update for status
         batch.update(guidelineRef, {
             status: 'approved',
-            guideline_text: text.substring(0, 10000), 
+            guideline_text: text.substring(0, 50000), // Increased storage limit for reference
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         await batch.commit();
+
         res.status(200).json({ success: true, message: `File processed into ${chunks.length} chunks` });
 
     } catch (e) {
+        console.error("Ingest Error:", e);
         res.status(500).json({ error: 'Server error', message: e.message });
     }
 };
