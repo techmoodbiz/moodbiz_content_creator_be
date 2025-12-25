@@ -1,26 +1,16 @@
 
-// api/audit.js
 const fetch = require('node-fetch');
 
 // --- HELPER: PROMPT TEMPLATES ---
 
 function getLanguageInstructions(rules, language, platform, platformRules) {
-  // Normalize input language code
   const targetLang =
-    language === 'Vietnamese'
-      ? 'vi'
-      : language === 'English'
-      ? 'en'
-      : language === 'Japanese'
-      ? 'ja'
-      : language;
+    language === 'Vietnamese' ? 'vi' : language === 'English' ? 'en' : language === 'Japanese' ? 'ja' : language;
 
-  // Safety check ensure rules is array
   const safeRules = Array.isArray(rules) ? rules : [];
 
   const langRules = safeRules
     .filter((r) => {
-      // Type must be language AND (apply_to_language is missing OR 'all' OR matches target)
       return (
         r.type === 'language' &&
         (!r.apply_to_language ||
@@ -172,8 +162,34 @@ NHIỆM VỤ:
 `;
 }
 
+// Robust JSON parsing helper
+function safeJSONParse(text) {
+  try {
+    // 1. Clean Markdown code blocks if any
+    let cleaned = text.trim();
+    const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (markdownMatch) {
+      cleaned = markdownMatch[1];
+    }
+
+    // 2. Find outermost JSON brackets
+    const firstOpen = cleaned.indexOf('{');
+    const lastClose = cleaned.lastIndexOf('}');
+    
+    if (firstOpen !== -1 && lastClose !== -1) {
+      cleaned = cleaned.substring(firstOpen, lastClose + 1);
+      return JSON.parse(cleaned);
+    }
+    
+    // 3. Fallback: try parsing directly just in case
+    return JSON.parse(text);
+  } catch (error) {
+    console.warn("JSON parse failed, attempting naive cleanup...", error);
+    throw error;
+  }
+}
+
 module.exports = async function handler(req, res) {
-  // CORS HEADERS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -201,7 +217,7 @@ module.exports = async function handler(req, res) {
     const targetProducts = products || product;
 
     const corePrompt = `
-Bạn là Hệ thống MOODBIZ AI Auditor v9.5 - Chuyên gia Đánh giá Nội dung chuẩn Enterprise.
+Bạn là Hệ thống MOODBIZ AI Auditor v9.7 - Chuyên gia Đánh giá Nội dung chuẩn Enterprise.
 
 ${getLanguageInstructions(safeRules, language, platform, platformRules)}
 ${getLogicInstructions(safeRules)}
@@ -228,15 +244,17 @@ YÊU CẦU XỬ LÝ (QUAN TRỌNG)
    - Nếu sai thông tin sản phẩm -> Gán category: "product".
 
 3. CẤU TRÚC JSON BẮT BUỘC:
-   - Trả về JSON thuần túy, không Markdown.
-   - Trường "citation": Nếu vi phạm quy tắc cụ thể (SOP), hãy ghi tên quy tắc. Nếu lỗi chung (như thừa dấu cách), ghi "Standard Formatting".
-
+   - TRẢ VỀ JSON HỢP LỆ (RFC 8259).
+   - KHÔNG dùng Markdown block (như \`\`\`json).
+   - ESCAPE cẩn thận các ký tự đặc biệt trong chuỗi (ví dụ: dấu ngoặc kép " phải thành \\").
+   
+JSON Template:
 {
   "summary": "Tóm tắt 2-3 câu về chất lượng bài viết.",
   "identified_issues": [
     {
       "category": "language | ai_logic | brand | product",
-      "problematic_text": "Trích dẫn chính xác đoạn văn bị lỗi",
+      "problematic_text": "Trích dẫn chính xác đoạn văn bị lỗi (Escape quote nếu có)",
       "citation": "Tên quy tắc vi phạm (VD: SOP RULE: Viết hoa, Standard Formatting...)",
       "reason": "Giải thích theo cấu trúc 'The Because Framework' (WHAT + WHY + IMPACT).",
       "severity": "High | Medium | Low",
@@ -255,7 +273,7 @@ NẾU KHÔNG PHÁT HIỆN LỖI:
     const requestBody = {
       contents: [{ parts: [{ text: corePrompt }] }],
       generationConfig: {
-        temperature: 0.2, // Low temperature for consistent critique
+        temperature: 0.2, 
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
@@ -268,23 +286,16 @@ NẾU KHÔNG PHÁT HIỆN LỖI:
     });
 
     const data = await response.json();
-    const textResult =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
     let jsonResult;
     try {
-      // Basic sanitization
-      const cleaned = textResult
-        .trim()
-        .replace(/^[\s\S]*?{/, '{')
-        .replace(/}[\s\S]*?$/, '}');
-      jsonResult = JSON.parse(cleaned);
+      jsonResult = safeJSONParse(textResult);
     } catch (parseErr) {
       console.error("Gemini Audit JSON Parse Error:", parseErr);
       console.error("Raw Text Result:", textResult);
-      
       jsonResult = {
-        summary: textResult || 'Không parse được JSON từ mô hình (Xem server logs).',
+        summary: "Hệ thống AI trả về dữ liệu không đúng định dạng JSON. (Raw: " + textResult.substring(0, 100) + "...)",
         identified_issues: [],
       };
     }
