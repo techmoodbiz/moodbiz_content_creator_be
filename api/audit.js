@@ -146,7 +146,7 @@ function safeJSONParse(text) {
     }
     return JSON.parse(text);
   } catch (error) {
-    console.warn("JSON parse failed", error);
+    console.warn("JSON Parse Error", error);
     throw error;
   }
 }
@@ -200,12 +200,20 @@ Khi phát hiện một lỗi, bạn phải xác định nó vi phạm thẻ Rule
 1. NẾU VI PHẠM SOP CỤ THỂ:
    - Tìm thẻ <Rule> tương ứng.
    - Lấy giá trị của thuộc tính "name" và điền vào trường "citation".
-   - VÍ DỤ: Nếu vi phạm <Rule name="Quy chuẩn tiếng Việt 01">, thì "citation": "Quy chuẩn tiếng Việt 01".
 
 2. NẾU VI PHẠM KIẾN THỨC PHỔ THÔNG (KHÔNG CÓ TRONG SOP):
    - Điền "Standard Grammar" (nếu là lỗi ngữ pháp cơ bản).
    - Điền "Universal Logic" (nếu là lỗi logic thông thường).
    - Điền "Brand Identity" (nếu sai lệch giọng văn chung).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+QUY TẮC "NEGATIVE CONSTRAINT" (TUYỆT ĐỐI TUÂN THỦ)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. CHỈ báo cáo các lỗi VI PHẠM thực sự (Violations).
+2. NẾU văn bản ĐÃ ĐÚNG hoặc PHÙ HỢP: TUYỆT ĐỐI KHÔNG đưa vào danh sách output.
+3. KHÔNG BAO GIỜ tạo ra suggestion kiểu "Giữ nguyên", "Keep as is", "Đã tốt", "Đã đúng". Nếu tốt rồi, hãy bỏ qua.
+4. KHÔNG báo cáo trùng lặp (Duplicate): Nếu 1 đoạn văn bản vi phạm nhiều lỗi, hãy gộp chúng lại hoặc chỉ báo lỗi nghiêm trọng nhất.
+5. Kiểm tra kỹ "problematic_text": Nó phải trích dẫn chính xác từ văn bản gốc.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT JSON FORMAT
@@ -217,10 +225,10 @@ Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "Trích dẫn đoạn lỗi",
-      "citation": "TÊN RULE VI PHẠM (Lấy từ thuộc tính 'name' của thẻ <Rule>)",
+      "citation": "TÊN RULE VI PHẠM",
       "reason": "Giải thích ngắn gọn tại sao lỗi.",
       "severity": "High | Medium | Low",
-      "suggestion": "Đề xuất sửa."
+      "suggestion": "Đề xuất sửa (KHÔNG ĐƯỢC LÀ 'Giữ nguyên')"
     }
   ]
 }
@@ -250,6 +258,24 @@ Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
     let jsonResult;
     try {
       jsonResult = safeJSONParse(textResult);
+      
+      // Post-process: Lọc bỏ các issue "ảo" ngay tại backend nếu AI vẫn cứng đầu trả về
+      if (jsonResult.identified_issues && Array.isArray(jsonResult.identified_issues)) {
+        jsonResult.identified_issues = jsonResult.identified_issues.filter(issue => {
+           const suggestion = (issue.suggestion || '').toLowerCase();
+           const reason = (issue.reason || '').toLowerCase();
+           
+           // Bỏ nếu suggestion là "giữ nguyên"
+           if (suggestion.includes('giữ nguyên') || suggestion.includes('keep as is') || suggestion.includes('không cần sửa')) return false;
+           // Bỏ nếu reason là lời khen
+           if (reason.includes('phù hợp') || reason.includes('đã đúng')) return false;
+           // Bỏ nếu suggestion giống hệt problematic_text
+           if (issue.suggestion?.trim() === issue.problematic_text?.trim()) return false;
+           
+           return true;
+        });
+      }
+
     } catch (parseErr) {
       console.error("JSON Parse Error:", parseErr);
       jsonResult = {
