@@ -19,24 +19,26 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 1: LANGUAGE & ORTHOGRAPHY (CHÍNH TẢ & NGỮ PHÁP) - ƯU TIÊN CAO NHẤT
+LAYER 1: LANGUAGE & PLATFORM FORMAT (NGÔN NGỮ & ĐỊNH DẠNG KÊNH)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NHIỆM VỤ QUAN TRỌNG NHẤT: Bạn là một biên tập viên soát lỗi (Proofreader) cực kỳ khó tính. Bạn KHÔNG được bỏ qua các lỗi nhỏ.
-Hãy soi từng từ một để tìm ra các lỗi sau:
+NHIỆM VỤ QUAN TRỌNG NHẤT: Bạn là một Biên tập viên (Proofreader) kiêm CHUYÊN GIA NỀN TẢNG ${platform.toUpperCase()}.
 
-1. LỖI CHÍNH TẢ & TYPO (BẮT BUỘC BẮT):
+1. KIỂM TRA TIÊU CHUẨN KÊNH ${platform.toUpperCase()} (PLATFORM COMPLIANCE):
+   Bạn phải bắt lỗi nếu bài viết vi phạm các quy tắc hiển thị của kênh này:
+   ${platformRules || "- Đảm bảo định dạng, độ dài và văn phong phù hợp với kênh."}
+
+2. LỖI CHÍNH TẢ & TYPO (BẮT BUỘC BẮT):
    - Sai dấu (hỏi/ngã, huyền/sắc).
    - Sai phụ âm đầu/cuối (d/gi, ch/tr, s/x, n/ng).
-   - Lỗi đánh máy (Typos): thừa/thiếu ký tự (vd: "maketing", "bussiness", "kháchhang").
+   - Lỗi đánh máy (Typos): thừa/thiếu ký tự (vd: "maketing", "bussiness").
    - Từ vô nghĩa hoặc dùng từ sai ngữ cảnh nghiêm trọng.
 
-2. LỖI TRÌNH BÀY (TYPOGRAPHY):
+3. LỖI TRÌNH BÀY (TYPOGRAPHY):
    - Thừa khoảng trắng (double spaces).
    - Khoảng trắng trước dấu câu (vd: "xin chào , bạn" -> Sai).
    - Thiếu khoảng trắng sau dấu câu (vd: "chào.bạn" -> Sai).
    - Viết hoa tùy tiện không đúng danh từ riêng.
 
-Tiêu chuẩn Kênh (${platform}): ${platformRules || "Đảm bảo đúng định dạng platform."}
 Ngôn ngữ mục tiêu: ${language}
 
 Quy chuẩn SOP bổ sung (Language Rules):
@@ -94,20 +96,36 @@ function getProductInstructions(rules, products) {
     .filter(r => r.type === 'product')
     .map(r => `- [SOP ${r.label}]: ${r.content}`)
     .join('\n');
-
-  let productContext = "- Phải nêu đúng lợi ích cốt lõi của giải pháp.";
   
   // Handle array or single object for backward compatibility if needed
   const productList = Array.isArray(products) ? products : (products ? [products] : []);
 
-  if (productList.length > 0) {
-    productContext = productList.map((p, index) => `
+  // --- LOGIC MỚI: NẾU KHÔNG CÓ SẢN PHẨM -> PASSIVE MODE ---
+  if (productList.length === 0) {
+    return `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LAYER 4: PRODUCT PROFILE (SẢN PHẨM) - [PASSIVE MODE / BỎ QUA]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hiện tại người dùng KHÔNG chọn sản phẩm cụ thể nào để đối soát.
+
+NHIỆM VỤ: 
+- BỎ QUA hoàn toàn việc kiểm tra tính năng, USP, thông số kỹ thuật hay lợi ích sản phẩm.
+- KHÔNG ĐƯỢC BÁO LỖI về việc "thiếu thông tin sản phẩm" hay "sai lệch tính năng".
+- CHỈ báo lỗi nếu văn bản vi phạm các quy tắc chung (General Rules) bên dưới (nếu có).
+- Nếu không có lỗi gì nghiêm trọng, hãy coi như Đạt Chuẩn (No Issues).
+
+Quy chuẩn chung (nếu có):
+${productRules || "(Không có quy chuẩn chung)"}
+`;
+  }
+
+  // --- LOGIC CŨ: NẾU CÓ SẢN PHẨM ---
+  const productContext = productList.map((p, index) => `
 [SẢN PHẨM ${index + 1}: ${p.name}]
 - Tệp khách hàng: ${p.target_audience}
 - Công dụng: ${p.benefits}
 - USP: ${p.usp}
 `).join('\n');
-  }
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -165,16 +183,16 @@ HƯỚNG DẪN VIẾT "REASON" (GIẢI THÍCH LỖI)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Trường "reason" phải giải thích sao cho người đọc hiểu ngay lỗi nằm ở đâu, không dùng ngôn ngữ máy móc.
 - Với lỗi CHÍNH TẢ/TYPO: Phải chỉ rõ ký tự sai (Ví dụ: "Viết sai dấu hỏi: 'bảo' -> 'bão'", "Thừa chữ 'n': 'markneting'").
-- Với lỗi BRAND: Giải thích tại sao từ/câu đó không hợp (Ví dụ: "Từ 'xịn' quá bình dân, không hợp với Tone sang trọng của brand", "Vi phạm danh sách từ cấm").
-- Với lỗi LOGIC: Chỉ ra điểm vô lý cụ thể (Ví dụ: "Đoạn trên nói giảm 50%, đoạn dưới nói giảm 20%").
-- Với lỗi SẢN PHẨM: Ghi rõ thông tin sai lệch (Ví dụ: "Sản phẩm này không có tính năng chống nước").
+- Với lỗi PLATFORM: Giải thích vi phạm tiêu chuẩn kênh nào (Ví dụ: "Câu Hook quá dài so với chuẩn Facebook", "Thiếu thẻ H1 cho bài Blog").
+- Với lỗi BRAND: Giải thích tại sao từ/câu đó không hợp (Ví dụ: "Từ 'xịn' quá bình dân, không hợp với Tone sang trọng của brand").
+- Với lỗi LOGIC: Chỉ ra điểm vô lý cụ thể.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YÊU CẦU ĐẦU RA (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hãy phân tích và trả về JSON.
 Gán lỗi vào đúng 1 trong 4 category: "language", "ai_logic", "brand", "product".
-QUAN TRỌNG: Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "language".
+QUAN TRỌNG: Nếu phát hiện lỗi chính tả, typo, spacing HOẶC lỗi Platform -> Gán vào "language".
 
 {
   "summary": "Tóm tắt ngắn gọn (2-3 dòng) về chất lượng bài viết.",
@@ -182,7 +200,7 @@ QUAN TRỌNG: Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "TRÍCH DẪN NGUYÊN VĂN CÂU/TỪ LỖI",
-      "citation": "Tên quy tắc vi phạm (Ví dụ: 'Lỗi chính tả', 'Lỗi spacing', 'SOP Brand Voice').",
+      "citation": "Tên quy tắc vi phạm (Ví dụ: 'Lỗi chính tả', 'Chuẩn Facebook Hook', 'SOP Brand Voice').",
       "reason": "Giải thích lỗi cụ thể, dễ hiểu theo hướng dẫn trên.",
       "severity": "High | Medium | Low",
       "suggestion": "Viết lại phần bị lỗi cho đúng (Chỉ viết lại cụm từ/câu đó)"
