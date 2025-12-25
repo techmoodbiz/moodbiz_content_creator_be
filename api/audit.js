@@ -35,20 +35,23 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 1: LANGUAGE & PLATFORM FORMAT (NGÔN NGỮ & ĐỊNH DẠNG KÊNH)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NHIỆM VỤ: Bạn là Biên tập viên Cao cấp kiêm Chuyên gia nền tảng ${String(
-    platform || ''
-  ).toUpperCase()}.
+NHIỆM VỤ: Bạn là "Grammar Nazi" (Cảnh sát chính tả) cực kỳ khó tính.
 
-1. PLATFORM COMPLIANCE (CHUẨN KÊNH ${String(platform || '').toUpperCase()}):
-  - Kiểm tra xem định dạng bài viết có phù hợp để TĂNG TƯƠNG TÁC trên kênh này không?
+1. KIỂM TRA LỖI DÍNH CHỮ & KHOẢNG TRẮNG (ƯU TIÊN SỐ 1 - BẮT BUỘC BẮT):
+  Bạn phải soi từng ký tự dấu câu. Nếu thấy lỗi sau, hãy FLAG ngay lập tức vào danh sách lỗi (High/Medium Severity):
+  - [LỖI DÍNH CHỮ]: Thiếu khoảng trắng SAU dấu câu (, . ; : …).
+    + Ví dụ SAI: "link,…Các", "abc,def", "hết câu.Bắt đầu".
+    + Ví dụ ĐÚNG: "link,… Các", "abc, def", "hết câu. Bắt đầu".
+  - [LỖI THỪA KHOẢNG TRẮNG]: Có khoảng trắng TRƯỚC dấu câu.
+    + Ví dụ SAI: "kết thúc .", "liên kết ,".
+    + Ví dụ ĐÚNG: "kết thúc.", "liên kết,".
+  - [LỖI NHẤT QUÁN]: Viết hoa tùy tiện (Ví dụ: lúc thì "Backlink", lúc thì "backlink").
+
+2. PLATFORM COMPLIANCE (CHUẨN KÊNH ${String(platform || '').toUpperCase()}):
   - Quy tắc kênh: ${
     platformRules ||
     'Tuân thủ định dạng chuẩn, độ dài và văn phong phù hợp với hành vi đọc trên kênh này.'
   }
-
-2. LỖI CHÍNH TẢ & TYPO (BẮT BUỘC BẮT):
-  - Soi kỹ từng ký tự: Sai dấu, sai phụ âm, lỗi đánh máy (Typos).
-  - Lỗi trình bày: Khoảng trắng thừa, thiếu khoảng trắng sau dấu câu.
 
 Ngôn ngữ mục tiêu: ${language || 'Không xác định'}
 
@@ -193,16 +196,12 @@ NHIỆM VỤ:
 }
 
 module.exports = async function handler(req, res) {
+  // CORS HEADERS MUST BE SET FIRST
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET, POST, PUT, DELETE, OPTIONS'
-  );
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization'
-  );
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
 
+  // Handle preflight immediately
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
@@ -249,7 +248,7 @@ CHAIN OF THOUGHT (QUY TRÌNH SUY LUẬN BẮT BUỘC - ẨN, KHÔNG IN RA)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Trước khi đưa ra kết luận, bạn hãy suy luận NGẦM (KHÔNG in ra) theo các bước:
 1. Phân tích ngữ cảnh: Bài viết này đăng ở đâu (${platform})? Ai đọc? Mục đích là gì?
-2. Đối chiếu 4 lớp: So sánh văn bản với 4 Layer quy chuẩn phía trên.
+2. Đối chiếu 4 lớp: So sánh văn bản với 4 Layer quy chuẩn phía trên. Chú ý đặc biệt đến các lỗi khoảng trắng và dấu câu đã được hướng dẫn ở Layer 1.
 3. Đánh giá tác động: Lỗi này ảnh hưởng thế nào đến cảm xúc người đọc (gây khó chịu, hiểu lầm, hay mất uy tín)?
 
 Chỉ sau khi đã suy luận xong, bạn mới sinh ra OUTPUT JSON theo đúng cấu trúc bên dưới.
@@ -273,9 +272,9 @@ Ví dụ TỐT:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ĐỊNH NGHĨA MỨC ĐỘ NGHIÊM TRỌNG (SEVERITY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- High: Sai lệch sự thật sản phẩm, vi phạm từ cấm (Don't words), hoặc ngôn ngữ xúc phạm/nhạy cảm.
+- High: Sai lệch sự thật sản phẩm, vi phạm từ cấm (Don't words), ngôn ngữ xúc phạm, hoặc lỗi formatting (khoảng trắng/dấu câu) gây khó chịu nghiêm trọng.
 - Medium: Sai Brand Voice, lỗi logic, cấu trúc lủng củng, CTA yếu.
-- Low: Lỗi chính tả nhỏ, lỗi khoảng trắng, lỗi thẩm mỹ không ảnh hưởng nội dung.
+- Low: Lỗi chính tả nhỏ ít ảnh hưởng.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT JSON FORMAT - QUY ĐỊNH NGHIÊM NGẶT & ANTI-NITPICKING
@@ -288,6 +287,7 @@ YÊU CẦU:
 CHỐNG NITPICKING (Bới lông tìm vết):
 - Chỉ báo cáo tối đa 3-5 lỗi quan trọng nhất (High/Medium) cho mỗi Category.
 - Bỏ qua các lỗi "Low" lặt vặt trừ khi chúng xuất hiện quá dày đặc làm giảm chất lượng bài viết.
+- **NGOẠI LỆ:** Đối với lỗi Formatting (dính chữ, thừa khoảng trắng), hãy báo cáo hết vì đây là lỗi kỹ thuật không thể chấp nhận.
 
 CẤU TRÚC JSON BẮT BUỘC:
 {
@@ -296,7 +296,7 @@ CẤU TRÚC JSON BẮT BUỘC:
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "Trích dẫn chính xác đoạn văn bị lỗi",
-      "citation": "Tên quy tắc vi phạm. Ưu tiên dùng chính xác label của SOP Rule nếu có (VD: 'SOP RULE: Viết hoa', 'SOP RULE: AI-HALLUCINATION'). Nếu không, dùng tên chung.",
+      "citation": "Tên quy tắc vi phạm. Ưu tiên dùng chính xác 'label' của SOP Rule nếu có (VD: 'SOP RULE: Viết hoa', 'SOP RULE: AI-HALLUCINATION'). Nếu không, dùng tên chung.",
       "reason": "Giải thích theo cấu trúc 'The Because Framework' (WHAT + WHY + IMPACT).",
       "severity": "High | Medium | Low",
       "suggestion": "Gợi ý viết lại đoạn đó cho đúng chuẩn."
@@ -316,6 +316,14 @@ VÍ DỤ JSON ĐÚNG (CHỈ LÀ VÍ DỤ, KHÔNG ÁP DỤNG NGUYÊN VẸN CHO B�
 {
   "summary": "Bài viết nhìn chung đúng brand voice, ít lỗi chính tả, nhưng có 1 chỗ mô tả sai USP của sản phẩm.",
   "identified_issues": [
+    {
+      "category": "language",
+      "problematic_text": "sản phẩm .",
+      "citation": "Lỗi Formatting",
+      "reason": "WHAT: Thừa khoảng trắng trước dấu chấm. WHY: Vi phạm quy tắc trình bày văn bản chuẩn. IMPACT: Gây cảm giác thiếu chuyên nghiệp và cẩu thả.",
+      "severity": "Medium",
+      "suggestion": "sản phẩm."
+    },
     {
       "category": "product",
       "problematic_text": "\\"Giúp doanh nghiệp tăng doanh thu gấp 10 lần chỉ sau 1 tuần\\"",
@@ -377,6 +385,7 @@ GIỜ HÃY TẠO JSON CHO BÀI VIẾT ĐƯỢC CUNG CẤP, TUÂN THỦ CHẶT CH
     return res.status(200).json({ result: jsonResult, success: true });
   } catch (e) {
     console.error("Audit API Error:", e);
+    // Return error as JSON to avoid blocking frontend with 500 HTML page (which causes CORS errors too sometimes)
     return res.status(500).json({ error: 'Server error', message: e.message });
   }
 };
