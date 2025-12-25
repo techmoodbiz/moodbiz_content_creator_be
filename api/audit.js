@@ -21,14 +21,19 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 1: LANGUAGE & ORTHOGRAPHY (CHÍNH TẢ & NGỮ PHÁP) - ƯU TIÊN CAO NHẤT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-NHIỆM VỤ QUAN TRỌNG NHẤT: Bạn phải đóng vai một biên tập viên soát lỗi (Proofreader) cực kỳ khó tính.
-Hãy soi kỹ từng từ một để tìm ra các lỗi sau:
-1. Lỗi chính tả (Spelling): Sai dấu hỏi/ngã, sai phụ âm đầu (d/gi, ch/tr, s/x), từ vô nghĩa.
-2. Lỗi đánh máy (Typos): Thừa thiếu ký tự, gõ nhầm phím.
-3. Lỗi quy tắc văn bản (Typography): 
+NHIỆM VỤ QUAN TRỌNG NHẤT: Bạn là một biên tập viên soát lỗi (Proofreader) cực kỳ khó tính. Bạn KHÔNG được bỏ qua các lỗi nhỏ.
+Hãy soi từng từ một để tìm ra các lỗi sau:
+
+1. LỖI CHÍNH TẢ & TYPO (BẮT BUỘC BẮT):
+   - Sai dấu (hỏi/ngã, huyền/sắc).
+   - Sai phụ âm đầu/cuối (d/gi, ch/tr, s/x, n/ng).
+   - Lỗi đánh máy (Typos): thừa/thiếu ký tự (vd: "maketing", "bussiness", "kháchhang").
+   - Từ vô nghĩa hoặc dùng từ sai ngữ cảnh nghiêm trọng.
+
+2. LỖI TRÌNH BÀY (TYPOGRAPHY):
    - Thừa khoảng trắng (double spaces).
-   - Khoảng trắng trước dấu câu (vd: "xin chào , bạn").
-   - Thiếu khoảng trắng sau dấu câu.
+   - Khoảng trắng trước dấu câu (vd: "xin chào , bạn" -> Sai).
+   - Thiếu khoảng trắng sau dấu câu (vd: "chào.bạn" -> Sai).
    - Viết hoa tùy tiện không đúng danh từ riêng.
 
 Tiêu chuẩn Kênh (${platform}): ${platformRules || "Đảm bảo đúng định dạng platform."}
@@ -158,8 +163,9 @@ VĂN BẢN CẦN KIỂM DUYỆT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YÊU CẦU ĐẦU RA (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Hãy phân tích và trả về JSON.
 Gán lỗi vào đúng 1 trong 4 category: "language", "ai_logic", "brand", "product".
-Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "language".
+QUAN TRỌNG: Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "language".
 
 {
   "summary": "Tóm tắt ngắn gọn (2-3 dòng) về chất lượng bài viết.",
@@ -182,7 +188,7 @@ Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "language".
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.1, // Low temp for precision
+        temperature: 0.1, // Low temp for precision to catch typos accurately
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
