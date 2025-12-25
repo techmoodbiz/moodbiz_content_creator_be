@@ -296,7 +296,7 @@ CẤU TRÚC JSON BẮT BUỘC:
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "Trích dẫn chính xác đoạn văn bị lỗi",
-      "citation": "Tên quy tắc vi phạm. Ưu tiên dùng chính xác `label` của SOP Rule nếu có (VD: 'SOP RULE: Viết hoa', 'SOP RULE: AI-HALLUCINATION'). Nếu không, dùng tên chung.",
+      "citation": "Tên quy tắc vi phạm. Ưu tiên dùng chính xác label của SOP Rule nếu có (VD: 'SOP RULE: Viết hoa', 'SOP RULE: AI-HALLUCINATION'). Nếu không, dùng tên chung.",
       "reason": "Giải thích theo cấu trúc 'The Because Framework' (WHAT + WHY + IMPACT).",
       "severity": "High | Medium | Low",
       "suggestion": "Gợi ý viết lại đoạn đó cho đúng chuẩn."
