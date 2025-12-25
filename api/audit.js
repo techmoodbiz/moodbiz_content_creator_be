@@ -19,14 +19,23 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 1: LANGUAGE & STYLE (NGÔN NGỮ)
+LAYER 1: LANGUAGE & ORTHOGRAPHY (CHÍNH TẢ & NGỮ PHÁP) - ƯU TIÊN CAO NHẤT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-- Tiêu chuẩn Kênh (${platform}): ${platformRules || "Đảm bảo đúng định dạng platform."}
-- Ngôn ngữ mục tiêu: ${language}
-- Quy chuẩn SOP (Language Rules):
-${langRules || "- [SOP RULE: Basic Grammar]: Đúng chính tả, không thừa dấu cách, không viết hoa vô tội vạ."}
+NHIỆM VỤ QUAN TRỌNG NHẤT: Bạn phải đóng vai một biên tập viên soát lỗi (Proofreader) cực kỳ khó tính.
+Hãy soi kỹ từng từ một để tìm ra các lỗi sau:
+1. Lỗi chính tả (Spelling): Sai dấu hỏi/ngã, sai phụ âm đầu (d/gi, ch/tr, s/x), từ vô nghĩa.
+2. Lỗi đánh máy (Typos): Thừa thiếu ký tự, gõ nhầm phím.
+3. Lỗi quy tắc văn bản (Typography): 
+   - Thừa khoảng trắng (double spaces).
+   - Khoảng trắng trước dấu câu (vd: "xin chào , bạn").
+   - Thiếu khoảng trắng sau dấu câu.
+   - Viết hoa tùy tiện không đúng danh từ riêng.
 
-NHIỆM VỤ: Soi lỗi trình bày, định dạng, khoảng trắng thừa, và kỹ thuật viết của kênh đăng tải.
+Tiêu chuẩn Kênh (${platform}): ${platformRules || "Đảm bảo đúng định dạng platform."}
+Ngôn ngữ mục tiêu: ${language}
+
+Quy chuẩn SOP bổ sung (Language Rules):
+${langRules || ""}
 `;
 }
 
@@ -38,7 +47,7 @@ function getLogicInstructions(rules) {
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 2: AI LOGIC & ACCURACY (LOGIC AI)
+LAYER 2: AI LOGIC & ACCURACY (LOGIC & SỰ THẬT)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Quy chuẩn SOP (Logic Rules):
 ${logicRules || "- [SOP RULE: Consistency]: Thông tin phải nhất quán.\n- [SOP RULE: Fact Check]: Không có sự mâu thuẫn về số liệu hoặc mốc thời gian."}
@@ -130,11 +139,11 @@ module.exports = async function handler(req, res) {
 
     // Assemble the 4-layer prompt on the server side
     const prompt = `
-Bạn là Hệ thống MOODBIZ AI Auditor v6.0 (Hạng Enterprise).
+Bạn là Hệ thống MOODBIZ AI Auditor v7.0 (Chuyên gia Soát lỗi & QC).
 Nhiệm vụ của bạn là thực hiện đối soát văn bản dựa trên 4 LỚP QUY CHUẨN ĐỘC LẬP. 
 
-PHƯƠNG CHÂM: "Khắt khe - Chính xác - Không khoan nhượng". 
-Nếu văn bản vi phạm bất kỳ tiêu chí nào trong 4 lớp dưới đây, hãy báo lỗi ngay lập tức.
+PHƯƠNG CHÂM: "Khắt khe - Chính xác - Không bỏ sót lỗi nhỏ". 
+Đặc biệt chú trọng lỗi CHÍNH TẢ và HÌNH THỨC ở Layer 1.
 
 ${getLanguageInstructions(rules || [], language, platform, platformRules)}
 ${getLogicInstructions(rules || [])}
@@ -150,21 +159,18 @@ VĂN BẢN CẦN KIỂM DUYỆT
 YÊU CẦU ĐẦU RA (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Gán lỗi vào đúng 1 trong 4 category: "language", "ai_logic", "brand", "product".
-Lưu ý: 
-- Lỗi về Voice, Personality, Core Values, Do/Don't Words PHẢI được xếp vào "brand".
-- KHÔNG yêu cầu viết lại văn bản (Bỏ phần rewritten_text).
-- BẮT BUỘC phải trích dẫn tên Rule/SOP bị vi phạm nếu lỗi thuộc về "language" hoặc "ai_logic".
+Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "language".
 
 {
-  "summary": "Tóm tắt ngắn gọn về các rủi ro phát hiện được (Khoảng 2-3 dòng).",
+  "summary": "Tóm tắt ngắn gọn (2-3 dòng) về chất lượng bài viết.",
   "identified_issues": [
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "TRÍCH DẪN NGUYÊN VĂN CÂU/TỪ LỖI",
-      "citation": "Tên quy tắc SOP bị vi phạm (Ví dụ: 'SOP RULE: Viết hoa', 'SOP RULE: Consistency'). Nếu không có SOP cụ thể, ghi 'General Standard'.",
-      "reason": "Giải thích chi tiết lỗi",
+      "citation": "Tên quy tắc vi phạm (Ví dụ: 'Lỗi chính tả', 'Lỗi spacing', 'SOP Brand Voice').",
+      "reason": "Giải thích ngắn gọn tại sao sai.",
       "severity": "High | Medium | Low",
-      "suggestion": "Cách sửa cụ thể để đạt chuẩn"
+      "suggestion": "Viết lại phần bị lỗi cho đúng (Chỉ viết lại cụm từ/câu đó)"
     }
   ]
 }
@@ -176,7 +182,7 @@ Lưu ý:
     const requestBody = {
       contents: [{ parts: [{ text: prompt }] }],
       generationConfig: {
-        temperature: 0.4,
+        temperature: 0.1, // Low temp for precision
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
