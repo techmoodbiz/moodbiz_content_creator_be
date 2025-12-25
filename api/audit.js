@@ -161,6 +161,15 @@ VĂN BẢN CẦN KIỂM DUYỆT
 "${text}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+HƯỚNG DẪN VIẾT "REASON" (GIẢI THÍCH LỖI)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Trường "reason" phải giải thích sao cho người đọc hiểu ngay lỗi nằm ở đâu, không dùng ngôn ngữ máy móc.
+- Với lỗi CHÍNH TẢ/TYPO: Phải chỉ rõ ký tự sai (Ví dụ: "Viết sai dấu hỏi: 'bảo' -> 'bão'", "Thừa chữ 'n': 'markneting'").
+- Với lỗi BRAND: Giải thích tại sao từ/câu đó không hợp (Ví dụ: "Từ 'xịn' quá bình dân, không hợp với Tone sang trọng của brand", "Vi phạm danh sách từ cấm").
+- Với lỗi LOGIC: Chỉ ra điểm vô lý cụ thể (Ví dụ: "Đoạn trên nói giảm 50%, đoạn dưới nói giảm 20%").
+- Với lỗi SẢN PHẨM: Ghi rõ thông tin sai lệch (Ví dụ: "Sản phẩm này không có tính năng chống nước").
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 YÊU CẦU ĐẦU RA (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 Hãy phân tích và trả về JSON.
@@ -174,7 +183,7 @@ QUAN TRỌNG: Nếu phát hiện lỗi chính tả, typo, spacing -> Gán vào "
       "category": "language | ai_logic | brand | product",
       "problematic_text": "TRÍCH DẪN NGUYÊN VĂN CÂU/TỪ LỖI",
       "citation": "Tên quy tắc vi phạm (Ví dụ: 'Lỗi chính tả', 'Lỗi spacing', 'SOP Brand Voice').",
-      "reason": "Giải thích ngắn gọn tại sao sai.",
+      "reason": "Giải thích lỗi cụ thể, dễ hiểu theo hướng dẫn trên.",
       "severity": "High | Medium | Low",
       "suggestion": "Viết lại phần bị lỗi cho đúng (Chỉ viết lại cụm từ/câu đó)"
     }
