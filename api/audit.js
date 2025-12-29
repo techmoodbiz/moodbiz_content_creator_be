@@ -263,6 +263,16 @@ Check for errors in this EXACT order. If a text segment has multiple errors, rep
    => IF MATCH: Category = "ai_logic".
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SUMMARY GENERATION GUIDELINES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Draft a professional Executive Summary (in Vietnamese) that follows this structure:
+1. Verdict: Start with a clear assessment (e.g., "Nội dung tốt", "Cần chỉnh sửa", "Rủi ro cao").
+2. Key Issues: Mention the specific layer with the most critical errors (e.g., "Vi phạm nghiêm trọng Brand Voice" or "Sai thông tin sản phẩm").
+3. Action: Give 1 specific recommendation.
+* Tone: Objective, Professional, Constructive.
+* Length: Max 2-3 sentences.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT RULES (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Do NOT output issues if the text is correct.
@@ -271,7 +281,7 @@ OUTPUT RULES (JSON ONLY)
 - Severity MUST be one of: "High", "Medium", "Low".
 
 {
-  "summary": "Short summary in Vietnamese.",
+  "summary": "Verdict + Key Issues + Action (Executive Summary in Vietnamese).",
   "identified_issues": [
     {
       "category": "language | ai_logic | brand | product",
@@ -292,7 +302,7 @@ OUTPUT RULES (JSON ONLY)
     const requestBody = {
       contents: [{ parts: [{ text: corePrompt }] }],
       generationConfig: {
-        temperature: 0.1,
+        temperature: 0.2,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
