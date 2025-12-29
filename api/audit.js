@@ -1,3 +1,4 @@
+
 const fetch = require('node-fetch');
 
 // --- HELPER: PROMPT TEMPLATES ---
@@ -215,9 +216,9 @@ Check for errors in this EXACT order. If a text segment has multiple errors, rep
    => IF MATCH: Category = "product". STOP.
 
 4. [CHECK LAST] REASONING & GENERAL HALLUCINATION -> Category: "ai_logic"
-   * Contradictions within the text?
+   * Contradictions within the text (e.g., Time paradoxes, Self-contradiction)?
    * Illogical or nonsense arguments?
-   * Hallucinated facts about general knowledge (NOT product-specific), not present in INPUT DATA?
+   * Hallucinated citations or general knowledge (NOT product-specific)?
    => IF MATCH: Category = "ai_logic".
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -243,6 +244,7 @@ OUTPUT RULES (JSON ONLY)
 }
 `;
 
+    // Use GEMINI_API_KEY from environment variables (Server-Side)
     const apiKey = process.env.GEMINI_API_KEY;
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
 
@@ -288,64 +290,31 @@ OUTPUT RULES (JSON ONLY)
     try {
       jsonResult = safeJSONParse(textResult);
 
+      // --- Post Processing & Classification Refinement ---
       const VALID_CATEGORIES = ['language', 'ai_logic', 'brand', 'product'];
 
       const LANG_KEYWORDS = [
-        'chính tả',
-        'ngữ pháp',
-        'dấu câu',
-        'viết hoa',
-        'khoảng trắng',
-        'định dạng',
-        'typo',
-        'spelling',
-        'syntax',
-        'câu cú',
-        'xuống dòng',
-        'chấm câu',
+        'chính tả', 'ngữ pháp', 'dấu câu', 'viết hoa', 'khoảng trắng', 'định dạng', 
+        'typo', 'spelling', 'syntax', 'câu cú', 'xuống dòng', 'chấm câu'
       ];
-
       const BRAND_KEYWORDS = [
-        'giọng điệu',
-        'tone',
-        'thân mật',
-        'trang trọng',
-        'từ cấm',
-        'do words',
-        "don't words",
-        'thương hiệu',
-        'style',
-        'voice',
-        'xưng hô',
+        'giọng điệu', 'tone', 'thân mật', 'trang trọng', 'từ cấm', 
+        'do words', "don't words", 'thương hiệu', 'style', 'voice', 'xưng hô'
       ];
-
       const PRODUCT_KEYWORDS = [
-        'giá',
-        'price',
-        'tính năng',
-        'feature',
-        'usp',
-        'ưu đãi',
-        'gói',
-        'dịch vụ',
-        'sản phẩm',
-        'bảo hành',
-        'thông số',
-        'specs',
-        'gói dịch vụ',
-        'ưu đãi',
+        'giá', 'price', 'tính năng', 'feature', 'usp', 'ưu đãi', 'gói', 
+        'dịch vụ', 'sản phẩm', 'bảo hành', 'thông số', 'specs', 'gói dịch vụ'
       ];
-
       const HALLU_KEYWORDS = [
-        'bịa đặt',
-        'hallucination',
-        'tự suy diễn',
-        'không có trong dữ liệu',
-        'không có trong input',
-        'không được cung cấp',
-        'sai kiến thức',
-        'sai định nghĩa',
-        'bịa thông tin',
+        'bịa đặt', 'hallucination', 'tự suy diễn', 'không có trong dữ liệu', 
+        'không có trong input', 'sai kiến thức', 'bịa thông tin', 'trích dẫn', 'nguồn'
+      ];
+      
+      // New: Logic Keywords to prevent misclassification into Product
+      // If the error mentions specific years (2025, 2026) or contradictions, it is likely AI_LOGIC, not Product.
+      const LOGIC_KEYWORDS = [
+        'logic', 'mâu thuẫn', 'thời gian', 'tương lai', 'quá khứ', 'contradict', 
+        'không hợp lý', 'ngày tháng', 'năm', '2024', '2025', '2026'
       ];
 
       const processedTexts = new Set();
@@ -392,22 +361,24 @@ OUTPUT RULES (JSON ONLY)
             const looksLikeHallucination = HALLU_KEYWORDS.some(
               (k) => reason.includes(k) || citation.includes(k),
             );
+            
+            const looksLikeLogic = LOGIC_KEYWORDS.some(
+              (k) => reason.includes(k) || citation.includes(k)
+            );
 
             // A. LANGUAGE luôn ưu tiên
             if (looksLikeLanguage) {
               return { ...issue, category: 'language' };
             }
 
-            // B. HALLUCINATION kiến thức chung: giữ ai_logic, không re-route
-            if (
-              looksLikeHallucination &&
-              cat === 'ai_logic' &&
-              !looksLikeProduct
-            ) {
-              return { ...issue, category: 'ai_logic' };
+            // B. AI LOGIC / HALLUCINATION PROTECTION
+            // If it looks like a Logic/Time error or General Hallucination, KEEP IT in AI_LOGIC
+            // even if it mentions product keywords (e.g. "Price in 2026" is a Time Logic error, not just a Price error)
+            if ((looksLikeLogic || looksLikeHallucination) && cat === 'ai_logic') {
+               return { ...issue, category: 'ai_logic' };
             }
 
-            // C. BRAND: re-route từ ai_logic nếu rõ là vấn đề tone/style và không phải hallucination/product
+            // C. BRAND: re-route from ai_logic if purely tone/style
             if (
               looksLikeBrand &&
               cat === 'ai_logic' &&
@@ -417,10 +388,12 @@ OUTPUT RULES (JSON ONLY)
               return { ...issue, category: 'brand' };
             }
 
-            // D. PRODUCT: fact sai về sản phẩm
+            // D. PRODUCT: Fact error about product
+            // Only move to product if it's NOT a logic/time error
             if (
               looksLikeProduct &&
-              (cat === 'ai_logic' || cat === 'brand')
+              (cat === 'ai_logic' || cat === 'brand') &&
+              !looksLikeLogic
             ) {
               return { ...issue, category: 'product' };
             }
@@ -476,14 +449,14 @@ OUTPUT RULES (JSON ONLY)
           });
       }
 
-      jsonResult.version = 'v14.1';
+      jsonResult.version = 'v14.1-server';
     } catch (parseErr) {
       console.error('JSON Parse Error:', parseErr);
       console.log('Raw Text:', textResult);
       jsonResult = {
         summary: 'Lỗi xử lý phản hồi từ AI (JSON Parse Error).',
         identified_issues: [],
-        version: 'v14.1',
+        version: 'v14.1-server',
       };
     }
 
@@ -495,7 +468,7 @@ OUTPUT RULES (JSON ONLY)
       result: {
         summary: `Hệ thống gặp sự cố: ${e.message}`,
         identified_issues: [],
-        version: 'v14.1',
+        version: 'v14.1-server',
       },
     });
   }
