@@ -1,4 +1,3 @@
-
 const fetch = require('node-fetch');
 
 // --- HELPER: PROMPT TEMPLATES ---
@@ -43,7 +42,6 @@ function getLogicInstructions(rules) {
     .map((r) => `<Rule name="${r.label}">\n${r.content}\n</Rule>`)
     .join('\n');
 
-  // Default logic rules if none provided
   const defaultLogic = `
 <Rule name="Internal Consistency">The text must not contradict itself (e.g., saying "Free" then "$50").</Rule>
 <Rule name="Logical Flow">Arguments and paragraphs must follow a logical sequence.</Rule>
@@ -63,8 +61,12 @@ function getBrandInstructions(brand = {}) {
     brand.personality ||
     'Chưa xác định';
 
-  const coreValues = Array.isArray(brand.core_values) ? brand.core_values.join(', ') : 'N/A';
-  const brandUSP = Array.isArray(brand.usp) ? brand.usp.join(', ') : 'N/A';
+  const coreValues = Array.isArray(brand.core_values)
+    ? brand.core_values.join(', ')
+    : 'N/A';
+  const brandUSP = Array.isArray(brand.usp)
+    ? brand.usp.join(', ')
+    : 'N/A';
 
   return `
 [LAYER 2: BRAND STYLE & IDENTITY (BRAND)]
@@ -73,8 +75,12 @@ function getBrandInstructions(brand = {}) {
 - Core Values: ${coreValues}
 - Brand USP: ${brandUSP}
 - Writing Style Rules: ${brand.style_rules || 'Standard Professional Style'}
-- Do Words (Encouraged): ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
-- Don't Words (FORBIDDEN): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'}
+- Do Words (Encouraged): ${
+    (Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'
+  }
+- Don't Words (FORBIDDEN): ${
+    (Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'
+  }
 `;
 }
 
@@ -100,7 +106,8 @@ function getProductInstructions(products) {
       )
       .join('\n');
   } else {
-    productContext = 'NO SPECIFIC PRODUCT DATA PROVIDED. Do NOT hallucinate errors about product specs/pricing.';
+    productContext =
+      'NO SPECIFIC PRODUCT DATA PROVIDED. Do NOT hallucinate errors about product specs/pricing.';
   }
 
   return `
@@ -113,7 +120,7 @@ ${productContext}
 function safeJSONParse(text) {
   try {
     let cleaned = text.trim();
-    const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    const markdownMatch = cleaned.match(/``````/);
     if (markdownMatch) cleaned = markdownMatch[1];
 
     const firstOpen = cleaned.indexOf('{');
@@ -252,20 +259,45 @@ OUTPUT RULES (JSON ONLY)
       jsonResult = safeJSONParse(textResult);
 
       const VALID_CATEGORIES = ['language', 'ai_logic', 'brand', 'product'];
-      // Từ khóa để bắt lỗi Language bị gán nhầm
       const LANG_KEYWORDS = [
-        'chính tả', 'ngữ pháp', 'dấu câu', 'viết hoa', 'khoảng trắng', 
-        'định dạng', 'typo', 'spelling', 'syntax', 'câu cú', 'xuống dòng', 'chấm câu'
+        'chính tả',
+        'ngữ pháp',
+        'dấu câu',
+        'thiếu dấu',
+        'thiếu dấu chấm',
+        'thiếu chấm',
+        'thiếu phẩy',
+        'thiếu dấu phẩy',
+        'thừa dấu',
+        'thừa dấu chấm',
+        'thừa dấu phẩy',
+        'viết hoa',
+        'viết thường',
+        'khoảng trắng',
+        'thừa khoảng trắng',
+        'thiếu khoảng trắng',
+        'dính chữ',
+        'dính liền',
+        'định dạng',
+        'typo',
+        'spelling',
+        'syntax',
+        'câu cú',
+        'xuống dòng',
+        'xuống hàng',
+        'chấm câu',
       ];
 
-      if (jsonResult.identified_issues && Array.isArray(jsonResult.identified_issues)) {
+      if (
+        jsonResult.identified_issues &&
+        Array.isArray(jsonResult.identified_issues)
+      ) {
         jsonResult.identified_issues = jsonResult.identified_issues
           .map((issue) => {
             const cat = issue.category;
             const reason = (issue.reason || '').toLowerCase();
             const citation = (issue.citation || '').toLowerCase();
 
-            // Nếu lý do chứa từ khóa ngôn ngữ -> Cưỡng chế về 'language'
             const looksLikeLanguage = LANG_KEYWORDS.some(
               (k) => reason.includes(k) || citation.includes(k),
             );
