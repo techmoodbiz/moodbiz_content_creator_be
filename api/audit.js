@@ -30,7 +30,7 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
   return `
 [LAYER 1: PHYSICAL & SYNTAX STANDARDS (LANGUAGE) - HIGHEST PRIORITY]
 - Target Language: ${language}
-- Platform Rules: ${platform} (${platformRules || 'Standard'})
+- Platform Rules: ${platform} (${platformRules || 'Standard formatting'})
 - Grammar/Spelling Rules: ${langRules || '(Standard Grammar & Spacing)'}
 `;
 }
@@ -43,9 +43,16 @@ function getLogicInstructions(rules) {
     .map((r) => `<Rule name="${r.label}">\n${r.content}\n</Rule>`)
     .join('\n');
 
+  // Default logic rules if none provided
+  const defaultLogic = `
+<Rule name="Internal Consistency">The text must not contradict itself (e.g., saying "Free" then "$50").</Rule>
+<Rule name="Logical Flow">Arguments and paragraphs must follow a logical sequence.</Rule>
+`;
+
   return `
 [LAYER 4: LOGIC & REASONING (AI_LOGIC) - LOWEST PRIORITY]
-- Logic Rules: ${logicRulesFromSOP || '(Internal Consistency)'}
+- Logic Rules: 
+${logicRulesFromSOP || defaultLogic}
 `;
 }
 
@@ -56,11 +63,17 @@ function getBrandInstructions(brand = {}) {
     brand.personality ||
     'Chưa xác định';
 
+  const coreValues = Array.isArray(brand.core_values) ? brand.core_values.join(', ') : 'N/A';
+  const brandUSP = Array.isArray(brand.usp) ? brand.usp.join(', ') : 'N/A';
+
   return `
 [LAYER 2: BRAND STYLE & IDENTITY (BRAND)]
 - Voice/Tone: ${brand.voice || brand.tone_of_voice || 'N/A'}
 - Personality: ${personality}
-- Do Words: ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
+- Core Values: ${coreValues}
+- Brand USP: ${brandUSP}
+- Writing Style Rules: ${brand.style_rules || 'Standard Professional Style'}
+- Do Words (Encouraged): ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
 - Don't Words (FORBIDDEN): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'}
 `;
 }
@@ -72,8 +85,7 @@ function getProductInstructions(products) {
     ? [products]
     : [];
 
-  let productContext =
-    'No specific product selected. Only check general product logic.';
+  let productContext = '';
 
   if (productList.length > 0) {
     productContext = productList
@@ -83,10 +95,12 @@ function getProductInstructions(products) {
 - Name: ${p.name}
 - Target Audience: ${p.target_audience}
 - Benefits: ${p.benefits}
-- USP: ${p.usp}
+- Product USP: ${p.usp}
 `,
       )
       .join('\n');
+  } else {
+    productContext = 'NO SPECIFIC PRODUCT DATA PROVIDED. Do NOT hallucinate errors about product specs/pricing.';
   }
 
   return `
@@ -147,7 +161,7 @@ module.exports = async function handler(req, res) {
     const targetProducts = products || product;
 
     const corePrompt = `
-Role: MOODBIZ Auditor v13.1 (Surface-First Priority).
+Role: MOODBIZ Auditor v13.2 (Data-Rich Surface-First).
 Objective: Identify issues and map them to categories using a PHYSICAL-FIRST approach.
 
 INPUT DATA:
@@ -172,15 +186,21 @@ Check for errors in this EXACT order. Stop at the first match.
    => IF MATCH: Category = "language". STOP.
 
 2. [CHECK SECOND] STYLE & IDENTITY -> Category: "brand"
-   * Wrong Tone/Voice? Used forbidden words? Wrong personality?
+   * Does it violate "Writing Style Rules" defined in Layer 2?
+   * Does it use "Don't Words"?
+   * Is the Tone/Voice inconsistent with the Brand Profile?
    => IF MATCH: Category = "brand". STOP.
 
 3. [CHECK THIRD] FACTUAL TRUTH -> Category: "product"
-   * Lying about price/features? Wrong specs? Hallucinations about the product?
+   * Only check this if Product Data is provided in Layer 3.
+   * Are there factual lies about price, specs, or features LISTED in Layer 3?
+   * NOTE: If Layer 3 is empty, SKIP this check unless there is a blatant lie about general world knowledge.
    => IF MATCH: Category = "product". STOP.
 
 4. [CHECK LAST] REASONING -> Category: "ai_logic"
-   * Contradictions? Nonsense paragraphs? Repetition?
+   * Contradictions within the text?
+   * Nonsense paragraphs?
+   * Illogical arguments?
    => IF MATCH: Category = "ai_logic".
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
