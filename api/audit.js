@@ -1,3 +1,4 @@
+
 const fetch = require('node-fetch');
 
 // --- HELPER: PROMPT TEMPLATES ---
@@ -42,6 +43,7 @@ function getLogicInstructions(rules) {
     .map((r) => `<Rule name="${r.label}">\n${r.content}\n</Rule>`)
     .join('\n');
 
+  // Default logic rules if none provided
   const defaultLogic = `
 <Rule name="Internal Consistency">The text must not contradict itself (e.g., saying "Free" then "$50").</Rule>
 <Rule name="Logical Flow">Arguments and paragraphs must follow a logical sequence.</Rule>
@@ -61,12 +63,8 @@ function getBrandInstructions(brand = {}) {
     brand.personality ||
     'Chưa xác định';
 
-  const coreValues = Array.isArray(brand.core_values)
-    ? brand.core_values.join(', ')
-    : 'N/A';
-  const brandUSP = Array.isArray(brand.usp)
-    ? brand.usp.join(', ')
-    : 'N/A';
+  const coreValues = Array.isArray(brand.core_values) ? brand.core_values.join(', ') : 'N/A';
+  const brandUSP = Array.isArray(brand.usp) ? brand.usp.join(', ') : 'N/A';
 
   return `
 [LAYER 2: BRAND STYLE & IDENTITY (BRAND)]
@@ -75,12 +73,8 @@ function getBrandInstructions(brand = {}) {
 - Core Values: ${coreValues}
 - Brand USP: ${brandUSP}
 - Writing Style Rules: ${brand.style_rules || 'Standard Professional Style'}
-- Do Words (Encouraged): ${
-    (Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'
-  }
-- Don't Words (FORBIDDEN): ${
-    (Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'
-  }
+- Do Words (Encouraged): ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
+- Don't Words (FORBIDDEN): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'}
 `;
 }
 
@@ -106,8 +100,7 @@ function getProductInstructions(products) {
       )
       .join('\n');
   } else {
-    productContext =
-      'NO SPECIFIC PRODUCT DATA PROVIDED. Do NOT hallucinate errors about product specs/pricing.';
+    productContext = 'NO SPECIFIC PRODUCT DATA PROVIDED. Do NOT hallucinate errors about product specs/pricing.';
   }
 
   return `
@@ -120,7 +113,7 @@ ${productContext}
 function safeJSONParse(text) {
   try {
     let cleaned = text.trim();
-    const markdownMatch = cleaned.match(/``````/);
+    const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (markdownMatch) cleaned = markdownMatch[1];
 
     const firstOpen = cleaned.indexOf('{');
@@ -164,11 +157,13 @@ module.exports = async function handler(req, res) {
       return res.status(400).json({ error: 'Brand and Text are required' });
     }
 
+    console.log(`[Audit Request] Brand: ${brand.name} | Length: ${text.length} | Platform: ${platform}`);
+
     const safeRules = Array.isArray(rules) ? rules : [];
     const targetProducts = products || product;
 
     const corePrompt = `
-Role: MOODBIZ Auditor v13.2 (Data-Rich Surface-First).
+Role: MOODBIZ Auditor v14.0 (Enhanced Classification).
 Objective: Identify issues and map them to categories using a PHYSICAL-FIRST approach.
 
 INPUT DATA:
@@ -181,16 +176,16 @@ TEXT TO AUDIT:
 "${text}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PRIORITY ROUTING (STRICT ORDER)
+PRIORITY ROUTING (STRICT ORDER - TIE BREAKING)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Check for errors in this EXACT order. Stop at the first match.
+Check for errors in this EXACT order. If a text segment has multiple errors, report only the highest priority one.
 
 1. [CHECK FIRST] PHYSICAL ERRORS -> Category: "language"
    * Is there ANY spelling error (typo), capitalization error, or spacing error?
    * Is there ANY missing punctuation (periods, commas) or wrong format?
    * CRITICAL: Even if the typo is in a Product Name (e.g., "Iphne"), it is a LANGUAGE error.
    * CRITICAL: Even if missing punctuation makes the sentence feel incomplete, it is a LANGUAGE error (Syntax), NOT Logic.
-   => IF MATCH: Category = "language". STOP.
+   => IF MATCH: Category = "language". STOP processing this specific text segment.
 
 2. [CHECK SECOND] STYLE & IDENTITY -> Category: "brand"
    * Does it violate "Writing Style Rules" defined in Layer 2?
@@ -201,12 +196,10 @@ Check for errors in this EXACT order. Stop at the first match.
 3. [CHECK THIRD] FACTUAL TRUTH -> Category: "product"
    * Only check this if Product Data is provided in Layer 3.
    * Are there factual lies about price, specs, or features LISTED in Layer 3?
-   * NOTE: If Layer 3 is empty, SKIP this check unless there is a blatant lie about general world knowledge.
    => IF MATCH: Category = "product". STOP.
 
 4. [CHECK LAST] REASONING -> Category: "ai_logic"
    * Contradictions within the text?
-   * Nonsense paragraphs?
    * Illogical arguments?
    => IF MATCH: Category = "ai_logic".
 
@@ -216,6 +209,7 @@ OUTPUT RULES (JSON ONLY)
 - Do NOT output issues if the text is correct.
 - Do NOT output "Keep as is".
 - Category MUST be one of: "language", "ai_logic", "brand", "product".
+- Severity MUST be one of: "High", "Medium", "Low".
 
 {
   "summary": "Short summary in Vietnamese.",
@@ -250,98 +244,135 @@ OUTPUT RULES (JSON ONLY)
       body: JSON.stringify(requestBody),
     });
 
-    const data = await response.json();
-    const textResult =
-      data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    if (!response.ok) {
+       const errorText = await response.text();
+       console.error("Gemini API Error:", errorText);
+       throw new Error(`Gemini API returned ${response.status}: ${errorText}`);
+    }
 
+    const data = await response.json();
+    
+    // Safety check for candidates
+    if (!data.candidates || data.candidates.length === 0) {
+        console.warn("Gemini returned no candidates (possible safety block).");
+        return res.status(200).json({ 
+            success: true, 
+            result: { 
+                summary: "Hệ thống AI không trả về kết quả (có thể do nội dung vi phạm chính sách an toàn).", 
+                identified_issues: [] 
+            } 
+        });
+    }
+
+    const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
     let jsonResult;
+
     try {
       jsonResult = safeJSONParse(textResult);
 
       const VALID_CATEGORIES = ['language', 'ai_logic', 'brand', 'product'];
+      
+      // Keyword Dictionaries for Classification Refinement
       const LANG_KEYWORDS = [
-        'chính tả',
-        'ngữ pháp',
-        'dấu câu',
-        'thiếu dấu',
-        'thiếu dấu chấm',
-        'thiếu chấm',
-        'thiếu phẩy',
-        'thiếu dấu phẩy',
-        'thừa dấu',
-        'thừa dấu chấm',
-        'thừa dấu phẩy',
-        'viết hoa',
-        'viết thường',
-        'khoảng trắng',
-        'thừa khoảng trắng',
-        'thiếu khoảng trắng',
-        'dính chữ',
-        'dính liền',
-        'định dạng',
-        'typo',
-        'spelling',
-        'syntax',
-        'câu cú',
-        'xuống dòng',
-        'xuống hàng',
-        'chấm câu',
+        'chính tả', 'ngữ pháp', 'dấu câu', 'viết hoa', 'khoảng trắng', 
+        'định dạng', 'typo', 'spelling', 'syntax', 'câu cú', 'xuống dòng', 'chấm câu'
+      ];
+      const BRAND_KEYWORDS = [
+        'giọng điệu', 'tone', 'thân mật', 'trang trọng', 'từ cấm', 
+        'do words', "don't words", 'thương hiệu', 'style', 'voice', 'xưng hô'
+      ];
+      const PRODUCT_KEYWORDS = [
+        'giá', 'price', 'tính năng', 'feature', 'usp', 'ưu đãi', 
+        'gói', 'dịch vụ', 'sản phẩm', 'bảo hành', 'thông số', 'specs'
       ];
 
-      if (
-        jsonResult.identified_issues &&
-        Array.isArray(jsonResult.identified_issues)
-      ) {
+      // Tie-breaking Set: Track processed texts to prioritize Language errors
+      const processedTexts = new Set();
+
+      if (jsonResult.identified_issues && Array.isArray(jsonResult.identified_issues)) {
         jsonResult.identified_issues = jsonResult.identified_issues
           .map((issue) => {
+            // 1. Data Sanitization & Defaults
+            if (!issue.problematic_text) return null; // Drop invalid issues
+            if (!issue.suggestion) issue.suggestion = "Review text";
+            
+            // Normalize Severity
+            const sev = (issue.severity || '').toLowerCase();
+            if (!['high', 'medium', 'low'].includes(sev)) {
+                issue.severity = 'Medium';
+            } else {
+                // Ensure Proper Case
+                issue.severity = sev.charAt(0).toUpperCase() + sev.slice(1);
+            }
+
             const cat = issue.category;
             const reason = (issue.reason || '').toLowerCase();
             const citation = (issue.citation || '').toLowerCase();
+            const problem = issue.problematic_text.toLowerCase();
 
-            const looksLikeLanguage = LANG_KEYWORDS.some(
-              (k) => reason.includes(k) || citation.includes(k),
-            );
+            // 2. Advanced Re-routing Logic
+            
+            // A. Check Language (Physical)
+            const looksLikeLanguage = LANG_KEYWORDS.some(k => reason.includes(k) || citation.includes(k));
+            if (looksLikeLanguage) {
+               return { ...issue, category: 'language' };
+            }
 
-            if (looksLikeLanguage && cat !== 'language') {
-              return { ...issue, category: 'language' };
+            // B. Check Brand (Style) - Re-route from Generic/Logic
+            const looksLikeBrand = BRAND_KEYWORDS.some(k => reason.includes(k) || citation.includes(k));
+            if (looksLikeBrand && cat === 'ai_logic') {
+               return { ...issue, category: 'brand' };
+            }
+
+            // C. Check Product (Fact) - Re-route from Logic or misclassified Brand
+            const looksLikeProduct = PRODUCT_KEYWORDS.some(k => reason.includes(k) || citation.includes(k) || problem.includes(k));
+            if (looksLikeProduct && (cat === 'ai_logic' || cat === 'brand')) {
+               return { ...issue, category: 'product' };
             }
 
             return issue;
           })
           .filter((issue) => {
-            const category = issue.category;
-            const suggestion = (issue.suggestion || '').toLowerCase();
-            const prob = (issue.problematic_text || '').trim();
-            const sugg = (issue.suggestion || '').trim();
-            const reason = (issue.reason || '').toLowerCase();
+             // 3. Final Filtering & Deduplication
+             if (!issue) return false;
 
-            if (!VALID_CATEGORIES.includes(category)) return false;
+             const category = issue.category;
+             const suggestion = (issue.suggestion || '').toLowerCase();
+             const prob = (issue.problematic_text || '').trim();
+             const sugg = (issue.suggestion || '').trim();
+             const reason = (issue.reason || '').toLowerCase();
 
-            if (
-              suggestion.includes('giữ nguyên') ||
-              suggestion.includes('keep as is') ||
-              !suggestion
-            )
-              return false;
+             // Schema validation
+             if (!VALID_CATEGORIES.includes(category)) return false;
+             
+             // Content validation
+             if (suggestion.includes('giữ nguyên') || suggestion.includes('keep as is') || !suggestion) return false;
+             if (prob && sugg && prob.toLowerCase() === sugg.toLowerCase()) return false;
+             if (reason.includes('đúng') || reason.includes('tốt') || reason.includes('không có lỗi')) return false;
 
-            if (prob && sugg && prob === sugg) return false;
+             // Tie-breaking: Prioritize Language (Physical) over others
+             // If we already have a Language error for this exact text, skip other errors for it.
+             const key = prob.toLowerCase();
+             
+             // If this issue IS Language, we keep it and mark text as processed
+             if (category === 'language') {
+                processedTexts.add(key);
+                return true;
+             }
 
-            if (
-              reason.includes('đúng') ||
-              reason.includes('tốt') ||
-              reason.includes('phù hợp') ||
-              reason.includes('chuẩn') ||
-              reason.includes('không có lỗi')
-            )
-              return false;
+             // If text was already processed by a Language error, skip this non-language error
+             if (processedTexts.has(key)) {
+                return false;
+             }
 
-            return true;
+             return true;
           });
       }
     } catch (parseErr) {
       console.error('JSON Parse Error:', parseErr);
+      console.log('Raw Text:', textResult);
       jsonResult = {
-        summary: 'Lỗi xử lý phản hồi từ AI.',
+        summary: 'Lỗi xử lý phản hồi từ AI (JSON Parse Error).',
         identified_issues: [],
       };
     }
@@ -349,8 +380,13 @@ OUTPUT RULES (JSON ONLY)
     return res.status(200).json({ result: jsonResult, success: true });
   } catch (e) {
     console.error('Audit API Error:', e);
-    return res
-      .status(500)
-      .json({ error: 'Server error', message: e.message });
+    // Return a structured error response instead of 500 crash where possible
+    return res.status(200).json({ 
+        success: false, 
+        result: { 
+            summary: `Hệ thống gặp sự cố: ${e.message}`, 
+            identified_issues: [] 
+        } 
+    });
   }
 };
