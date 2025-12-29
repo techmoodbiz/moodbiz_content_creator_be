@@ -123,23 +123,68 @@ ${productContext}
 `;
 }
 
-// Robust JSON parsing helper
+// Robust JSON parsing helper with repair capabilities for truncated responses
 function safeJSONParse(text) {
-  try {
-    let cleaned = text.trim();
+  const cleanAndParse = (str) => {
+    let cleaned = str.trim();
+    // Extract JSON block if marked with backticks
     const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (markdownMatch) cleaned = markdownMatch[1];
+    if (markdownMatch) cleaned = markdownMatch[1].trim();
 
+    // Ensure it looks like a JSON object
     const firstOpen = cleaned.indexOf('{');
-    const lastClose = cleaned.lastIndexOf('}');
-    if (firstOpen !== -1 && lastClose !== -1) {
-      cleaned = cleaned.substring(firstOpen, lastClose + 1);
-      return JSON.parse(cleaned);
+    if (firstOpen !== -1) {
+      cleaned = cleaned.substring(firstOpen);
     }
-    return JSON.parse(text);
+    
+    // Attempt parse
+    try {
+      return JSON.parse(cleaned);
+    } catch (e) {
+      throw e; // Throw to trigger repair logic
+    }
+  };
+
+  try {
+    return cleanAndParse(text);
   } catch (error) {
-    console.warn('JSON Parse Error', error);
-    throw error;
+    // Attempt repair for truncated JSON
+    console.warn('JSON Parse Error, attempting repair...', error.message);
+    
+    let repaired = text.trim();
+    const markdownMatch = repaired.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    if (markdownMatch) repaired = markdownMatch[1].trim();
+    
+    const firstOpen = repaired.indexOf('{');
+    if (firstOpen !== -1) repaired = repaired.substring(firstOpen);
+
+    // Remove trailing comma if present (common in truncation)
+    if (repaired.trim().endsWith(',')) repaired = repaired.trim().slice(0, -1);
+    
+    // Check balance
+    const openBraces = (repaired.match(/{/g) || []).length;
+    const closeBraces = (repaired.match(/}/g) || []).length;
+    const openBrackets = (repaired.match(/\[/g) || []).length;
+    const closeBrackets = (repaired.match(/]/g) || []).length;
+    const quotes = (repaired.match(/"/g) || []).length;
+
+    // If odd quotes, we might have a truncated string. Close it.
+    if (quotes % 2 !== 0) repaired += '"';
+
+    // Close arrays/objects
+    for (let i = 0; i < openBrackets - closeBrackets; i++) repaired += ']';
+    for (let i = 0; i < openBraces - closeBraces; i++) repaired += '}';
+
+    try {
+      return JSON.parse(repaired);
+    } catch (finalError) {
+      console.error('Failed to repair JSON:', finalError);
+      return {
+         summary: "Lỗi phân tích cú pháp (JSON Error) do phản hồi bị cắt ngắn hoặc không hợp lệ.",
+         identified_issues: [],
+         raw: text
+      };
+    }
   }
 }
 
@@ -310,11 +355,10 @@ OUTPUT RULES (JSON ONLY)
         'không có trong input', 'sai kiến thức', 'bịa thông tin', 'trích dẫn', 'nguồn'
       ];
       
-      // New: Logic Keywords to prevent misclassification into Product
-      // If the error mentions specific years (2025, 2026) or contradictions, it is likely AI_LOGIC, not Product.
+      // Keywords for explicit Logic/Time errors that should NOT be Product
       const LOGIC_KEYWORDS = [
         'logic', 'mâu thuẫn', 'thời gian', 'tương lai', 'quá khứ', 'contradict', 
-        'không hợp lý', 'ngày tháng', 'năm', '2024', '2025', '2026'
+        'không hợp lý', 'ngày tháng', 'năm', '2024', '2025', '2026', 'nghịch lý'
       ];
 
       const processedTexts = new Set();
@@ -340,8 +384,7 @@ OUTPUT RULES (JSON ONLY)
             const cat = issue.category;
             const reason = (issue.reason || '').toLowerCase();
             const citation = (issue.citation || '').toLowerCase();
-            const problem =
-              (issue.problematic_text || '').toLowerCase();
+            const problem = (issue.problematic_text || '').toLowerCase();
 
             const looksLikeLanguage = LANG_KEYWORDS.some(
               (k) => reason.includes(k) || citation.includes(k),
@@ -366,19 +409,25 @@ OUTPUT RULES (JSON ONLY)
               (k) => reason.includes(k) || citation.includes(k)
             );
 
-            // A. LANGUAGE luôn ưu tiên
+            // A. LANGUAGE always priority
             if (looksLikeLanguage) {
               return { ...issue, category: 'language' };
             }
 
-            // B. AI LOGIC / HALLUCINATION PROTECTION
-            // If it looks like a Logic/Time error or General Hallucination, KEEP IT in AI_LOGIC
-            // even if it mentions product keywords (e.g. "Price in 2026" is a Time Logic error, not just a Price error)
-            if ((looksLikeLogic || looksLikeHallucination) && cat === 'ai_logic') {
+            // B. FORCE AI LOGIC
+            // If it is explicitly a logic/time error, Force AI_LOGIC.
+            // This overrides Product if the error is about "Logic/Time" even if it mentions a product price.
+            if (looksLikeLogic) {
                return { ...issue, category: 'ai_logic' };
             }
 
-            // C. BRAND: re-route from ai_logic if purely tone/style
+            // C. HALLUCINATION PROTECTION
+            // If it's a hallucination and NOT clearly about product specs, keep in AI_LOGIC
+            if (looksLikeHallucination && cat === 'ai_logic' && !looksLikeProduct) {
+               return { ...issue, category: 'ai_logic' };
+            }
+
+            // D. BRAND: re-route from ai_logic if purely tone/style
             if (
               looksLikeBrand &&
               cat === 'ai_logic' &&
@@ -388,12 +437,10 @@ OUTPUT RULES (JSON ONLY)
               return { ...issue, category: 'brand' };
             }
 
-            // D. PRODUCT: Fact error about product
-            // Only move to product if it's NOT a logic/time error
+            // E. PRODUCT: Fact error about product
             if (
               looksLikeProduct &&
-              (cat === 'ai_logic' || cat === 'brand') &&
-              !looksLikeLogic
+              (cat === 'ai_logic' || cat === 'brand')
             ) {
               return { ...issue, category: 'product' };
             }
@@ -407,7 +454,6 @@ OUTPUT RULES (JSON ONLY)
             const suggestion = (issue.suggestion || '').toLowerCase();
             const prob = (issue.problematic_text || '').trim();
             const sugg = (issue.suggestion || '').trim();
-            const reason = (issue.reason || '').toLowerCase();
 
             if (!VALID_CATEGORIES.includes(category)) return false;
 
@@ -422,15 +468,6 @@ OUTPUT RULES (JSON ONLY)
               prob &&
               sugg &&
               prob.toLowerCase() === sugg.toLowerCase()
-            )
-              return false;
-
-            if (
-              reason.includes('đúng') ||
-              reason.includes('tốt') ||
-              reason.includes('phù hợp') ||
-              reason.includes('chuẩn') ||
-              reason.includes('không có lỗi')
             )
               return false;
 
@@ -449,7 +486,7 @@ OUTPUT RULES (JSON ONLY)
           });
       }
 
-      jsonResult.version = 'v14.1-server';
+      jsonResult.version = 'v14.1-server-stable';
     } catch (parseErr) {
       console.error('JSON Parse Error:', parseErr);
       console.log('Raw Text:', textResult);
