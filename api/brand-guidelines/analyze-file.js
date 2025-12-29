@@ -50,35 +50,43 @@ module.exports = async function handler(req, res) {
                  return res.status(400).json({ error: 'Không tìm thấy đủ nội dung văn bản trong file để phân tích.' });
             }
 
-            // Call Gemini
+            // Call Gemini with Structured Output
             const apiKey = process.env.GEMINI_API_KEY;
-            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`;
+            const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
 
             const prompt = `
-Analyze the following document content and extract brand guideline information.
-Return ONLY a valid JSON object with EXACTLY these camelCase keys:
-{
-  "brandName": "Company/Brand name",
-  "industry": "Industry/Sector",
-  "targetAudience": "Target audience description",
-  "tone": "Communication tone (formal/casual/friendly/professional)",
-  "coreValues": ["Value 1", "Value 2", "Value 3"],
-  "keywords": ["keyword1", "keyword2", "keyword3"],
-  "visualStyle": "Description of visual style",
-  "dos": ["Do this", "Do that"],
-  "donts": ["Don't do this", "Don't do that"],
-  "summary": "Brief brand summary"
-}
-Document Content:
-${text.substring(0, 30000)}
+Analyze the following document content (Brand Guideline or Company Profile) and extract key information.
+
+INSTRUCTIONS:
+- If specific "Don'ts" or "Negative Constraints" are not listed, INFER them from the Tone of Voice.
+- Extract concrete keywords for "Dos" and "Donts".
+- Summarize the "Visual Style" based on descriptions (e.g., "Minimalist, bold typography" vs "Colorful, playful").
+
+DOCUMENT CONTENT:
+${text.substring(0, 50000)}
 `;
 
             const requestBody = {
                 contents: [{ parts: [{ text: prompt }] }],
                 generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 8192,
+                    temperature: 0.5,
                     responseMimeType: "application/json",
+                    responseSchema: {
+                        type: "OBJECT",
+                        properties: {
+                            brandName: { type: "STRING" },
+                            industry: { type: "STRING" },
+                            targetAudience: { type: "STRING" },
+                            tone: { type: "STRING" },
+                            coreValues: { type: "ARRAY", items: { type: "STRING" } },
+                            keywords: { type: "ARRAY", items: { type: "STRING" } },
+                            visualStyle: { type: "STRING" },
+                            dos: { type: "ARRAY", items: { type: "STRING" } },
+                            donts: { type: "ARRAY", items: { type: "STRING" } },
+                            summary: { type: "STRING" }
+                        },
+                        required: ["brandName", "tone", "dos", "donts", "summary"]
+                    }
                 },
             };
 
@@ -90,16 +98,17 @@ ${text.substring(0, 30000)}
 
             if (!aiRes.ok) {
                  const errText = await aiRes.text();
+                 console.error("Gemini Error", errText);
                  return res.status(500).json({ error: 'Gemini API Error', details: errText });
             }
 
             const data = await aiRes.json();
-            const textResult = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            let brandGuideline = JSON.parse(textResult.trim().replace(/```json?/gi, '').replace(/```/g, ''));
+            const brandGuideline = JSON.parse(data.candidates?.[0]?.content?.parts?.[0]?.text || "{}");
 
             return res.status(200).json({ success: true, data: brandGuideline });
 
         } catch (e) {
+            console.error("Analyze File Error", e);
             return res.status(500).json({ error: 'Processing error', message: e.message });
         }
     });
