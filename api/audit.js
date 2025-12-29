@@ -9,7 +9,7 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 
   const safeRules = Array.isArray(rules) ? rules : [];
 
-  // Sử dụng cấu trúc XML <Rule> để AI dễ dàng trích dẫn
+  // Lấy các Rule thuộc nhóm Language từ Database
   const langRules = safeRules
     .filter((r) => {
       return (
@@ -26,21 +26,24 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 LAYER 1: LANGUAGE & FORMATTING (NGÔN NGỮ & ĐỊNH DẠNG)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHẠM VI (SCOPE): Category "language".
-NGUỒN DỮ LIỆU: SOP SYSTEM (Database Rules).
+[DEFINITION]
+Đây là lớp kiểm tra KỸ THUẬT. Chỉ quan tâm đến hình thức, không quan tâm đến ý nghĩa sâu xa.
 
-QUY ĐỊNH BẮT BUỘC:
-1. MỌI lỗi về chính tả, dấu câu, khoảng trắng, viết hoa, format ĐỀU PHẢI thuộc category "language".
-2. KIỂM TRA LỖI DÍNH CHỮ & KHOẢNG TRẮNG:
-  - [LỖI DÍNH CHỮ]: Thiếu khoảng trắng SAU dấu câu (, . ; : …).
-  - [LỖI THỪA KHOẢNG TRẮNG]: Có khoảng trắng TRƯỚC dấu câu.
+[DATA SOURCE]
+- SOP Rules (Type: Language)
+- Platform Constraints (${platform})
 
-CÁC QUY CHUẨN SOP CỤ THỂ (ƯU TIÊN CAO NHẤT):
-Dưới đây là các quy tắc cụ thể từ hệ thống SOP. Nếu vi phạm, hãy trích dẫn tên Rule (thuộc tính 'name').
-${langRules || '(Không có quy chuẩn ngôn ngữ bổ sung được cung cấp.)'}
+[CHECKLIST BẮT BUỘC]
+1. Chính tả & Ngữ pháp: Sai dấu hỏi/ngã, sai cấu trúc câu.
+2. Typography (Lỗi trình bày):
+   - [Space Error]: Dính chữ sau dấu câu hoặc thừa khoảng trắng trước dấu câu.
+   - [Capitalization]: Viết hoa tùy tiện không đúng quy tắc.
+3. Platform Standard (${platform}):
+   - ${platformRules || 'Đảm bảo format phù hợp với kênh này.'}
+4. SOP Compliance:
+${langRules || '(Tuân thủ quy tắc ngữ pháp chuẩn)'}
 
-PLATFORM COMPLIANCE (CHUẨN KÊNH ${String(platform || '').toUpperCase()}):
-- ${platformRules || 'Tuân thủ định dạng chuẩn, độ dài và văn phong phù hợp với hành vi đọc trên kênh này.'}
+[OUTPUT CATEGORY] -> "language"
 `;
 }
 
@@ -54,25 +57,31 @@ function getLogicInstructions(rules) {
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 2: AI LOGIC & ACCURACY (LOGIC & SỰ THẬT)
+LAYER 2: AI LOGIC & REASONING (LOGIC & TƯ DUY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHẠM VI (SCOPE): Category "ai_logic".
-NGUỒN DỮ LIỆU: SOP SYSTEM (Database Rules).
-NEGATIVE CONSTRAINT: KHÔNG báo lỗi chính tả ở đây.
+[DEFINITION]
+Đây là lớp kiểm tra TƯ DUY. Quan tâm đến tính hợp lý và sự nhất quán của nội dung.
 
-QUY CHUẨN SOP LOGIC:
-${logicRulesFromSOP || '<Rule name="Internal Consistency">Đánh dấu lỗi khi hai đoạn trong cùng bài tự mâu thuẫn nhau.</Rule>'}
+[DATA SOURCE]
+- SOP Rules (Type: AI Logic)
+- Common Sense (Kiến thức phổ quát)
 
-NHIỆM VỤ:
-- Phát hiện Hallucinations (Ảo giác AI): Thông tin bịa đặt không có thật.
-- Phát hiện Mâu thuẫn nội tại: Đoạn trước đá đoạn sau.
-- Phát hiện Lỗi Lập luận: Suy diễn không logic.
+[CHECKLIST BẮT BUỘC]
+1. Internal Consistency (Nhất quán nội tại):
+   - Có đoạn nào mâu thuẫn với đoạn trước đó không? (VD: Đoạn 1 nói "Miễn phí", đoạn 3 nói "Giá 50k").
+2. AI Hallucinations (Ảo giác):
+   - Có thông tin nào nghe có vẻ bịa đặt, phi logic hoặc phóng đại quá mức không?
+3. Reasoning Flow (Mạch lạc):
+   - Lập luận có lủng củng, thiếu căn cứ không?
+
+[SOP COMPLIANCE]
+${logicRulesFromSOP || '<Rule name="Logic Check">Nội dung phải logic và nhất quán.</Rule>'}
+
+[OUTPUT CATEGORY] -> "ai_logic"
 `;
 }
 
 function getBrandInstructions(brand = {}) {
-  // Brand Block chỉ lấy dữ liệu từ Brand Object, KHÔNG lấy từ rules array nữa
-  
   const personality =
     (Array.isArray(brand.brand_personality) &&
       brand.brand_personality.join(', ')) ||
@@ -81,60 +90,71 @@ function getBrandInstructions(brand = {}) {
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 3: BRAND IDENTITY (THƯƠNG HIỆU)
+LAYER 3: BRAND IDENTITY (NHẬN DIỆN THƯƠNG HIỆU)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHẠM VI (SCOPE): Category "brand".
-NGUỒN DỮ LIỆU: BRAND PROFILE (Từ Collection Brands).
+[DEFINITION]
+Đây là lớp kiểm tra CẢM XÚC & BẢN SẮC. Quan tâm đến việc "Người nói là ai?".
 
-Dữ liệu Brand (Đây là "Single Source of Truth"):
-- Voice/Tone (Giọng văn): ${brand.voice || brand.tone_of_voice || 'Chưa xác định'}
-- Personality (Tính cách): ${personality}
-- Do Words (Từ khóa NÊN dùng): ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'Không có'}
-- Don't Words (Từ khóa CẤM dùng): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'Không có'}
+[DATA SOURCE]
+- Brand Profile (Object)
 
-NHIỆM VỤ:
-- Đối chiếu văn bản với Voice/Tone và Personality ở trên. Nếu lệch pha (ví dụ: Brand nghiêm túc mà viết quá teen), hãy báo lỗi.
-- Quét tìm các từ trong danh sách "Don't Words". Nếu xuất hiện, báo lỗi nghiêm trọng (High Severity).
-- KHÔNG sử dụng các quy tắc chung chung bên ngoài. Chỉ bám sát dữ liệu trên.
+[CONTEXT]
+- Brand Name: ${brand.name}
+- Voice/Tone: ${brand.voice || brand.tone_of_voice || 'N/A'}
+- Personality: ${personality}
+- Do Words (Khuyên dùng): ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
+- Don't Words (CẤM DÙNG): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'}
+
+[CHECKLIST BẮT BUỘC]
+1. Voice Check: Văn bản có đúng giọng điệu (Tone) đã khai báo không?
+2. Banned Words: Có xuất hiện từ nào trong danh sách "Don't Words" không? (Lỗi Nghiêm Trọng).
+3. Personality Check: Văn bản có thể hiện đúng tính cách thương hiệu không?
+
+[OUTPUT CATEGORY] -> "brand"
 `;
 }
 
 function getProductInstructions(products) {
-  // Product Block chỉ lấy dữ liệu từ Products Array, KHÔNG lấy từ rules array nữa
-
   const productList = Array.isArray(products)
     ? products
     : products
     ? [products]
     : [];
 
-  let productContext = "Không có sản phẩm cụ thể được chọn. Bỏ qua kiểm tra tính năng chi tiết, chỉ kiểm tra lỗi logic sản phẩm chung.";
+  let productContext = "Không có sản phẩm cụ thể được chọn. Chỉ kiểm tra lỗi logic sản phẩm chung chung.";
   
   if (productList.length > 0) {
     productContext = productList
       .map((p, index) => `
-[SẢN PHẨM ${index + 1}: ${p.name || 'Chưa đặt tên'}]
-- Khách hàng mục tiêu: ${p.target_audience || 'N/A'}
-- Lợi ích (Benefits): ${p.benefits || 'N/A'}
-- USP (Lợi thế bán hàng): ${p.usp || 'N/A'}
+[ITEM ${index + 1}]
+- Tên: ${p.name}
+- Loại: ${p.type}
+- Target Audience: ${p.target_audience}
+- Benefits: ${p.benefits}
+- USP (Unique Selling Point): ${p.usp}
 `)
       .join('\n');
   }
 
   return `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-LAYER 4: PRODUCT PROFILE (SẢN PHẨM)
+LAYER 4: PRODUCT & MARKET FIT (SẢN PHẨM & THỊ TRƯỜNG)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-PHẠM VI (SCOPE): Category "product".
-NGUỒN DỮ LIỆU: PRODUCT COLLECTION.
+[DEFINITION]
+Đây là lớp kiểm tra SỰ THẬT SẢN PHẨM. Quan tâm đến tính chính xác của thông tin bán hàng.
 
-THÔNG TIN SẢN PHẨM ĐƯỢC CUNG CẤP:
+[DATA SOURCE]
+- Product Collection (Array)
+
+[CONTEXT]
 ${productContext}
 
-NHIỆM VỤ:
-- Hallucination Check: Kiểm tra xem văn bản có bịa đặt tính năng nào KHÔNG có trong thông tin trên không.
-- Omission Check: Kiểm tra xem văn bản có bỏ sót USP quan trọng nhất (Lợi thế cạnh tranh) không.
-- Wrong Audience: Kiểm tra xem giọng văn có phù hợp với "Khách hàng mục tiêu" đã định nghĩa không.
+[CHECKLIST BẮT BUỘC]
+1. Fact Check: Bài viết có nói sai tính năng/công dụng của sản phẩm so với dữ liệu cung cấp không?
+2. USP Check: Bài viết có bỏ quên Lợi điểm bán hàng độc nhất (USP) không?
+3. Audience Fit: Ngôn ngữ có phù hợp với "Target Audience" đã định nghĩa không?
+
+[OUTPUT CATEGORY] -> "product"
 `;
 }
 
@@ -186,7 +206,8 @@ module.exports = async function handler(req, res) {
     const targetProducts = products || product;
 
     const corePrompt = `
-Bạn là Hệ thống MOODBIZ AI Auditor v9.9.
+Bạn là Hệ thống MOODBIZ AI Auditor v10.0 (Spec-Compliant).
+Nhiệm vụ: Audit văn bản dựa trên 4 Lớp tiêu chuẩn độc lập (Isolated Layers).
 
 ${getLanguageInstructions(safeRules, language, platform, platformRules)}
 ${getLogicInstructions(safeRules)}
@@ -199,47 +220,35 @@ VĂN BẢN CẦN KIỂM DUYỆT
 "${text}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-HƯỚNG DẪN TRÍCH DẪN (CITATION) & PHÂN LOẠI
+HƯỚNG DẪN XỬ LÝ (PROCESSING RULES)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Hệ thống đã cung cấp các quy tắc SOP dưới dạng thẻ XML <Rule name="...">...</Rule>.
+1. CLASSIFICATION (Phân loại):
+   - Bắt buộc gán lỗi vào đúng 1 trong 4 category: "language", "ai_logic", "brand", "product".
+   - Không được gán sai lớp (VD: Lỗi sai tính năng sản phẩm KHÔNG ĐƯỢC gán vào logic).
 
-ĐỊNH NGHĨA CATEGORY CHO OUTPUT JSON:
-1. "language": Lỗi chính tả, dấu câu, format, viết hoa, ngữ pháp (Dựa trên Layer 1).
-2. "ai_logic": Lỗi logic, mâu thuẫn, thông tin bịa đặt, lập luận yếu (Dựa trên Layer 2).
-3. "brand": Sai giọng văn, sai tính cách, dùng từ cấm (Dựa trên Layer 3 - Brand Profile).
-4. "product": Sai thông tin sản phẩm, thiếu USP, sai đối tượng mục tiêu (Dựa trên Layer 4 - Product Profile).
+2. CITATION (Trích dẫn):
+   - Nếu vi phạm Layer 1 hoặc 2: Trích dẫn tên thẻ <Rule name="...">.
+   - Nếu vi phạm Layer 3: Ghi "Brand Guideline Violation".
+   - Nếu vi phạm Layer 4: Ghi "Product Fact Violation".
 
-HƯỚNG DẪN XỬ LÝ CITATION:
-1. NẾU VI PHẠM SOP (Layer 1 & 2):
-   - Tìm thẻ <Rule> tương ứng.
-   - Lấy giá trị của thuộc tính "name" và điền vào trường "citation".
-2. NẾU VI PHẠM BRAND/PRODUCT (Layer 3 & 4):
-   - Điền "Brand Identity Violation" (nếu sai Brand).
-   - Điền "Product Fact Violation" (nếu sai thông tin Product).
+3. NEGATIVE CONSTRAINTS (Chặn lỗi ảo):
+   - Nếu văn bản đã tốt/đúng -> KHÔNG báo cáo.
+   - KHÔNG đưa ra suggestion kiểu "Giữ nguyên" (Keep as is).
+   - KHÔNG báo cáo trùng lặp (1 lỗi chỉ báo 1 lần).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-QUY TẮC "NEGATIVE CONSTRAINT" (TUYỆT ĐỐI TUÂN THỦ)
+OUTPUT FORMAT (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-1. CHỈ báo cáo các lỗi VI PHẠM thực sự (Violations).
-2. NẾU văn bản ĐÃ ĐÚNG hoặc PHÙ HỢP: TUYỆT ĐỐI KHÔNG đưa vào danh sách output.
-3. KHÔNG BAO GIỜ tạo ra suggestion kiểu "Giữ nguyên", "Keep as is", "Đã tốt", "Đã đúng", "Không cần sửa". Nếu tốt rồi, hãy bỏ qua.
-4. KHÔNG báo cáo trùng lặp (Duplicate): Nếu 1 đoạn văn bản vi phạm nhiều lỗi, hãy gộp chúng lại hoặc chỉ báo lỗi nghiêm trọng nhất.
-5. Kiểm tra kỹ "problematic_text": Nó phải trích dẫn chính xác từ văn bản gốc.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-OUTPUT JSON FORMAT
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
 {
-  "summary": "Tóm tắt đánh giá.",
+  "summary": "Tóm tắt ngắn gọn tình trạng bài viết (Tiếng Việt).",
   "identified_issues": [
     {
       "category": "language | ai_logic | brand | product",
-      "problematic_text": "Trích dẫn đoạn lỗi",
-      "citation": "TÊN RULE VI PHẠM HOẶC LOẠI VI PHẠM",
-      "reason": "Giải thích ngắn gọn tại sao lỗi.",
+      "problematic_text": "Đoạn văn bị lỗi",
+      "citation": "Nguồn quy tắc vi phạm",
+      "reason": "Giải thích ngắn gọn tại sao lỗi",
       "severity": "High | Medium | Low",
-      "suggestion": "Đề xuất sửa (KHÔNG ĐƯỢC LÀ 'Giữ nguyên')"
+      "suggestion": "Đề xuất sửa cụ thể (Khác với bản gốc)"
     }
   ]
 }
@@ -251,7 +260,7 @@ Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
     const requestBody = {
       contents: [{ parts: [{ text: corePrompt }] }],
       generationConfig: {
-        temperature: 0.1, // Cực thấp để đảm bảo tuân thủ Citation chính xác
+        temperature: 0.1, // Cực thấp để đảm bảo tuân thủ Spec
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
       },
@@ -270,21 +279,17 @@ Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
     try {
       jsonResult = safeJSONParse(textResult);
       
-      // Post-process: Lọc bỏ các issue "ảo" ngay tại backend nếu AI vẫn cứng đầu trả về
+      // Post-process: Lọc bỏ rác lần cuối tại server
       if (jsonResult.identified_issues && Array.isArray(jsonResult.identified_issues)) {
         jsonResult.identified_issues = jsonResult.identified_issues.filter(issue => {
            const suggestion = (issue.suggestion || '').toLowerCase();
-           const reason = (issue.reason || '').toLowerCase();
-           const prob = (issue.problematic_text || '').toLowerCase();
+           const prob = (issue.problematic_text || '').trim();
+           const sugg = (issue.suggestion || '').trim();
            
-           // Filter 1: Bỏ nếu suggestion là "giữ nguyên"
-           if (suggestion.includes('giữ nguyên') || suggestion.includes('keep as is') || suggestion.includes('không cần sửa')) return false;
-           
-           // Filter 2: Bỏ nếu reason là lời khen
-           if (reason.includes('phù hợp') || reason.includes('đã đúng')) return false;
-           
-           // Filter 3: Bỏ nếu suggestion giống hệt problematic_text
-           if (issue.suggestion?.trim() === issue.problematic_text?.trim()) return false;
+           // Filter: Suggestion vô nghĩa
+           if (suggestion.includes('giữ nguyên') || suggestion.includes('keep as is')) return false;
+           // Filter: Suggestion y hệt bản gốc
+           if (prob === sugg) return false;
            
            return true;
         });
@@ -293,7 +298,7 @@ Trả về JSON hợp lệ (RFC 8259), không dùng Markdown block.
     } catch (parseErr) {
       console.error("JSON Parse Error:", parseErr);
       jsonResult = {
-        summary: "Lỗi định dạng phản hồi từ AI. Vui lòng thử lại.",
+        summary: "Lỗi xử lý phản hồi từ AI.",
         identified_issues: [],
       };
     }
