@@ -28,9 +28,10 @@ function getLanguageInstructions(rules, language, platform, platformRules) {
     .join('\n');
 
   return `
-[LAYER 3 DATA: TECHNICAL STANDARDS]
-- Platform: ${platform} (${platformRules || 'Standard'})
-- Language Rules: ${langRules || '(Standard Grammar)'}
+[LAYER 1: PHYSICAL & SYNTAX STANDARDS (LANGUAGE) - HIGHEST PRIORITY]
+- Target Language: ${language}
+- Platform Rules: ${platform} (${platformRules || 'Standard'})
+- Grammar/Spelling Rules: ${langRules || '(Standard Grammar & Spacing)'}
 `;
 }
 
@@ -43,7 +44,7 @@ function getLogicInstructions(rules) {
     .join('\n');
 
   return `
-[LAYER 4 DATA: LOGIC & REASONING]
+[LAYER 4: LOGIC & REASONING (AI_LOGIC) - LOWEST PRIORITY]
 - Logic Rules: ${logicRulesFromSOP || '(Internal Consistency)'}
 `;
 }
@@ -56,15 +57,11 @@ function getBrandInstructions(brand = {}) {
     'Chưa xác định';
 
   return `
-[LAYER 2 DATA: BRAND IDENTITY]
+[LAYER 2: BRAND STYLE & IDENTITY (BRAND)]
 - Voice/Tone: ${brand.voice || brand.tone_of_voice || 'N/A'}
 - Personality: ${personality}
-- Do Words: ${
-    (Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'
-  }
-- Don't Words (FORBIDDEN): ${
-    (Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'
-  }
+- Do Words: ${(Array.isArray(brand.do_words) && brand.do_words.join(', ')) || 'N/A'}
+- Don't Words (FORBIDDEN): ${(Array.isArray(brand.dont_words) && brand.dont_words.join(', ')) || 'N/A'}
 `;
 }
 
@@ -93,7 +90,7 @@ function getProductInstructions(products) {
   }
 
   return `
-[LAYER 1 DATA: PRODUCT FACTS (HIGHEST PRIORITY)]
+[LAYER 3: FACTUAL TRUTH & SEMANTICS (PRODUCT)]
 ${productContext}
 `;
 }
@@ -102,7 +99,6 @@ ${productContext}
 function safeJSONParse(text) {
   try {
     let cleaned = text.trim();
-    // FIX: Regex cũ bị sai (/``````/), thay bằng regex bắt markdown block chuẩn
     const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
     if (markdownMatch) cleaned = markdownMatch[1];
 
@@ -151,54 +147,47 @@ module.exports = async function handler(req, res) {
     const targetProducts = products || product;
 
     const corePrompt = `
-Role: MOODBIZ Auditor v12.1 (Decision Tree Mode).
-Objective: Identify issues in the text using a strict PRIORITY FILTER.
+Role: MOODBIZ Auditor v13.1 (Surface-First Priority).
+Objective: Identify issues and map them to categories using a PHYSICAL-FIRST approach.
 
 INPUT DATA:
-${getProductInstructions(targetProducts)}
-${getBrandInstructions(brand)}
 ${getLanguageInstructions(safeRules, language, platform, platformRules)}
+${getBrandInstructions(brand)}
+${getProductInstructions(targetProducts)}
 ${getLogicInstructions(safeRules)}
 
 TEXT TO AUDIT:
 "${text}"
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DECISION TREE ALGORITHM (MUST FOLLOW IN ORDER)
+PRIORITY ROUTING (STRICT ORDER)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-For each potential issue found, apply these checks sequentially. STOP at the first match.
+Check for errors in this EXACT order. Stop at the first match.
 
-1️⃣ [PRIORITY 1] CHECK "product"
-   - Is it a factual error about Product Features, Pricing, or Specs?
-   - Is it mentioning a competitor or feature NOT in the Input?
-   - Is the USP missing or wrong?
-   - Is the Target Audience clearly wrong?
-   => IF YES: Category = "product". STOP.
+1. [CHECK FIRST] PHYSICAL ERRORS -> Category: "language"
+   * Is there ANY spelling error (typo), capitalization error, or spacing error?
+   * Is there ANY missing punctuation (periods, commas) or wrong format?
+   * CRITICAL: Even if the typo is in a Product Name (e.g., "Iphne"), it is a LANGUAGE error.
+   * CRITICAL: Even if missing punctuation makes the sentence feel incomplete, it is a LANGUAGE error (Syntax), NOT Logic.
+   => IF MATCH: Category = "language". STOP.
 
-2️⃣ [PRIORITY 2] CHECK "brand"
-   - Does it use any "Don't Words"?
-   - Is the Tone/Voice wrong (e.g., too casual for a professional brand)?
-   - Is the Personality inconsistent with the profile?
-   => IF YES: Category = "brand". STOP.
+2. [CHECK SECOND] STYLE & IDENTITY -> Category: "brand"
+   * Wrong Tone/Voice? Used forbidden words? Wrong personality?
+   => IF MATCH: Category = "brand". STOP.
 
-3️⃣ [PRIORITY 3] CHECK "language"
-   - Are there spelling or grammar mistakes?
-   - Are there formatting issues (spacing, capitalization, punctuation)?
-   - Does it violate Platform specific rules (length, structure)?
-   => IF YES: Category = "language". STOP.
+3. [CHECK THIRD] FACTUAL TRUTH -> Category: "product"
+   * Lying about price/features? Wrong specs? Hallucinations about the product?
+   => IF MATCH: Category = "product". STOP.
 
-4️⃣ [PRIORITY 4] CHECK "ai_logic"
-   - Is there a contradiction within the text itself (e.g., says "Free" then says "$50")?
-   - Is the reasoning weak or nonsensical?
-   - Is there a hallucination about general world knowledge (NOT product facts)?
-   => IF YES: Category = "ai_logic".
+4. [CHECK LAST] REASONING -> Category: "ai_logic"
+   * Contradictions? Nonsense paragraphs? Repetition?
+   => IF MATCH: Category = "ai_logic".
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OUTPUT RULES (JSON ONLY)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 - Do NOT output issues if the text is correct.
-- Do NOT output "Keep as is" suggestions.
-- Do NOT duplicate issues.
+- Do NOT output "Keep as is".
 - Category MUST be one of: "language", "ai_logic", "brand", "product".
 
 {
@@ -207,8 +196,8 @@ OUTPUT RULES (JSON ONLY)
     {
       "category": "language | ai_logic | brand | product",
       "problematic_text": "Exact quote",
-      "citation": "Source of rule (e.g., 'Product Specs', 'Brand Voice', 'Grammar Rule')",
-      "reason": "Why is it wrong based on the data?",
+      "citation": "Source of rule",
+      "reason": "Explain the ROOT CAUSE (e.g., 'Missing punctuation', 'Typo in brand name')",
       "severity": "High | Medium | Low",
       "suggestion": "Correction"
     }
@@ -243,20 +232,39 @@ OUTPUT RULES (JSON ONLY)
       jsonResult = safeJSONParse(textResult);
 
       const VALID_CATEGORIES = ['language', 'ai_logic', 'brand', 'product'];
+      // Từ khóa để bắt lỗi Language bị gán nhầm
+      const LANG_KEYWORDS = [
+        'chính tả', 'ngữ pháp', 'dấu câu', 'viết hoa', 'khoảng trắng', 
+        'định dạng', 'typo', 'spelling', 'syntax', 'câu cú', 'xuống dòng', 'chấm câu'
+      ];
 
       if (jsonResult.identified_issues && Array.isArray(jsonResult.identified_issues)) {
-        jsonResult.identified_issues = jsonResult.identified_issues.filter(
-          (issue) => {
+        jsonResult.identified_issues = jsonResult.identified_issues
+          .map((issue) => {
+            const cat = issue.category;
+            const reason = (issue.reason || '').toLowerCase();
+            const citation = (issue.citation || '').toLowerCase();
+
+            // Nếu lý do chứa từ khóa ngôn ngữ -> Cưỡng chế về 'language'
+            const looksLikeLanguage = LANG_KEYWORDS.some(
+              (k) => reason.includes(k) || citation.includes(k),
+            );
+
+            if (looksLikeLanguage && cat !== 'language') {
+              return { ...issue, category: 'language' };
+            }
+
+            return issue;
+          })
+          .filter((issue) => {
             const category = issue.category;
             const suggestion = (issue.suggestion || '').toLowerCase();
             const prob = (issue.problematic_text || '').trim();
             const sugg = (issue.suggestion || '').trim();
             const reason = (issue.reason || '').toLowerCase();
 
-            // 1) Category phải hợp lệ
             if (!VALID_CATEGORIES.includes(category)) return false;
 
-            // 2) Suggestion vô nghĩa
             if (
               suggestion.includes('giữ nguyên') ||
               suggestion.includes('keep as is') ||
@@ -264,23 +272,19 @@ OUTPUT RULES (JSON ONLY)
             )
               return false;
 
-            // 3) Suggestion trùng đoạn gốc
             if (prob && sugg && prob === sugg) return false;
 
-            // 4) Reason là lời khen
             if (
               reason.includes('đúng') ||
               reason.includes('tốt') ||
               reason.includes('phù hợp') ||
               reason.includes('chuẩn') ||
-              reason.includes('không có lỗi') ||
-              reason.includes('không phát hiện lỗi')
+              reason.includes('không có lỗi')
             )
               return false;
 
             return true;
-          },
-        );
+          });
       }
     } catch (parseErr) {
       console.error('JSON Parse Error:', parseErr);
