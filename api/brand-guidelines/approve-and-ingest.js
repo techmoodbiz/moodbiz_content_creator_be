@@ -20,15 +20,75 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
-function chunkText(text, chunkSize = 1000, overlap = 150) {
+/**
+ * SEMANTIC CHUNKING STRATEGY (KnowNote Style)
+ * Instead of cutting at fixed characters, we split by logical blocks (Paragraphs).
+ * 1. Split by double newlines (\n\n) to identify paragraphs.
+ * 2. If a paragraph is huge, split it by sentences.
+ * 3. Group small paragraphs together to form a meaningful "Atomic Chunk" (~1000 chars).
+ */
+function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
+    // 1. Normalize line endings and remove excessive whitespace
+    const cleanText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // 2. Split into logical blocks (Paragraphs)
+    // We look for double newlines or single newlines followed by a capital letter or bullet point
+    const rawParagraphs = cleanText.split(/\n\s*\n/);
+    
     const chunks = [];
-    let start = 0;
-    while (start < text.length) {
-        const end = Math.min(start + chunkSize, text.length);
-        chunks.push({ text: text.slice(start, end).trim(), start, end });
-        start += chunkSize - overlap;
+    let currentChunk = "";
+    
+    for (const para of rawParagraphs) {
+        const cleanPara = para.trim();
+        if (!cleanPara) continue;
+
+        // 3. Logic: Accumulate paragraphs until we hit the limit
+        const potentialSize = currentChunk.length + cleanPara.length + 2; // +2 for newline
+
+        if (potentialSize <= maxChunkSize) {
+            // Fits in current chunk
+            currentChunk += (currentChunk ? "\n\n" : "") + cleanPara;
+        } else {
+            // Overflow: Push current chunk if it exists
+            if (currentChunk.length >= minChunkSize) {
+                chunks.push(currentChunk);
+                currentChunk = "";
+            }
+
+            // Handle the new paragraph
+            if (cleanPara.length > maxChunkSize) {
+                // EDGE CASE: The single paragraph is larger than the limit.
+                // We must split this paragraph by sentences to avoid cutting words.
+                const sentences = cleanPara.match(/[^.!?]+[.!?]+(\s+|$)/g) || [cleanPara];
+                
+                let subChunk = "";
+                for (const sentence of sentences) {
+                    if (subChunk.length + sentence.length <= maxChunkSize) {
+                        subChunk += sentence;
+                    } else {
+                        if (subChunk) chunks.push(subChunk.trim());
+                        subChunk = sentence;
+                    }
+                }
+                if (subChunk) currentChunk = subChunk.trim(); // Start new accumulator with remainder
+            } else {
+                // Paragraph fits in a new chunk
+                currentChunk = cleanPara;
+            }
+        }
     }
-    return chunks;
+
+    // Push the final remnant
+    if (currentChunk) {
+        chunks.push(currentChunk);
+    }
+
+    // Post-processing: Filter out very small noise chunks (e.g., page numbers)
+    return chunks.filter(c => c.length > 20).map((c, index) => ({
+        text: c,
+        start: index * 100, // Approximate, mostly for ordering
+        end: (index * 100) + c.length
+    }));
 }
 
 module.exports = async function handler(req, res) {
@@ -55,9 +115,9 @@ module.exports = async function handler(req, res) {
         const [fileBuffer] = await file.download();
 
         let text = '';
-        // Robust file type detection based on extension
         const fileName = (guideline.file_name || '').toLowerCase();
 
+        // --- EXTRACT TEXT ---
         if (fileName.endsWith('.pdf')) {
             const data = await pdfParse(fileBuffer);
             text = data.text || '';
@@ -65,7 +125,6 @@ module.exports = async function handler(req, res) {
             const result = await mammoth.extractRawText({ buffer: fileBuffer });
             text = result.value;
         } else {
-            // Default to text parsing for md, txt, or unknown types
             text = fileBuffer.toString('utf-8');
         }
 
@@ -73,10 +132,14 @@ module.exports = async function handler(req, res) {
             return res.status(400).json({ error: 'Không thể trích xuất nội dung văn bản từ file này.' });
         }
 
-        const chunks = chunkText(text);
+        // --- PHASE 1: SEMANTIC CHUNKING ---
+        const chunks = semanticChunking(text, 1000, 100);
+        
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
-        // Generate embeddings in parallel
+        // --- EMBEDDING ---
+        // We process sequentially or in small batches to respect rate limits if necessary, 
+        // but Promise.all is usually fine for < 100 chunks.
         const embeddingPromises = chunks.map(async (chunk, idx) => {
             try {
                 const response = await fetch(embedUrl, {
@@ -84,8 +147,13 @@ module.exports = async function handler(req, res) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content: { parts: [{ text: chunk.text }] } })
                 });
-                const data = await response.json();
                 
+                if (!response.ok) {
+                    console.warn(`Embedding failed for chunk ${idx}: ${response.statusText}`);
+                    return { ...chunk, embedding: null, chunk_index: idx };
+                }
+
+                const data = await response.json();
                 return {
                     text: chunk.text,
                     embedding: data.embedding?.values || null,
@@ -93,35 +161,38 @@ module.exports = async function handler(req, res) {
                 };
             } catch (err) { 
                 console.error(`Error embedding chunk ${idx}:`, err);
-                return {
-                    text: chunk.text,
-                    embedding: null,
-                    chunk_index: idx,
-                };
+                return { ...chunk, embedding: null, chunk_index: idx };
             }
         });
 
         const results = await Promise.all(embeddingPromises);
 
-        // Firestore Write Batching (Limit: 500 ops per batch)
+        // --- FIRESTORE BATCH WRITE ---
         const BATCH_SIZE = 400; 
         let batch = db.batch();
         let opCounter = 0;
 
         for (const chunkData of results) {
+            if (!chunkData.embedding) continue; // Skip failed embeddings
+
             const chunkRef = guidelineRef.collection('chunks').doc();
             batch.set(chunkRef, {
                 text: chunkData.text,
                 embedding: chunkData.embedding,
                 chunk_index: chunkData.chunk_index,
                 is_master_source: !!guideline.is_primary,
+                metadata: {
+                    source_file: guideline.file_name,
+                    char_count: chunkData.text.length,
+                    type: "semantic_block"
+                },
                 created_at: admin.firestore.FieldValue.serverTimestamp(),
             });
             opCounter++;
 
             if (opCounter >= BATCH_SIZE) {
                 await batch.commit();
-                batch = db.batch(); // Start new batch
+                batch = db.batch();
                 opCounter = 0;
             }
         }
@@ -129,13 +200,18 @@ module.exports = async function handler(req, res) {
         // Final batch update for status
         batch.update(guidelineRef, {
             status: 'approved',
-            guideline_text: text.substring(0, 50000), // Increased storage limit for reference
+            guideline_text: text.substring(0, 50000), // Store raw text for quick preview
+            chunk_count: results.length,
+            processing_method: 'semantic_v2',
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         await batch.commit();
 
-        res.status(200).json({ success: true, message: `File processed into ${chunks.length} chunks` });
+        res.status(200).json({ 
+            success: true, 
+            message: `File processed into ${chunks.length} semantic chunks` 
+        });
 
     } catch (e) {
         console.error("Ingest Error:", e);

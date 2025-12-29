@@ -16,15 +16,62 @@ if (!admin.apps.length) {
 
 const db = admin.firestore();
 
-function chunkText(text, chunkSize = 1000, overlap = 150) {
+/**
+ * SEMANTIC CHUNKING STRATEGY (Shared Logic)
+ * Ensures consistency between File Uploads and Text/Website Ingestion.
+ */
+function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
+    // 1. Normalize line endings
+    const cleanText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+    
+    // 2. Split by logical blocks (Paragraphs)
+    const rawParagraphs = cleanText.split(/\n\s*\n/);
+    
     const chunks = [];
-    let start = 0;
-    while (start < text.length) {
-        const end = Math.min(start + chunkSize, text.length);
-        chunks.push({ text: text.slice(start, end).trim(), start, end });
-        start += chunkSize - overlap;
+    let currentChunk = "";
+    
+    for (const para of rawParagraphs) {
+        const cleanPara = para.trim();
+        if (!cleanPara) continue;
+
+        const potentialSize = currentChunk.length + cleanPara.length + 2;
+
+        if (potentialSize <= maxChunkSize) {
+            currentChunk += (currentChunk ? "\n\n" : "") + cleanPara;
+        } else {
+            if (currentChunk.length >= minChunkSize) {
+                chunks.push(currentChunk);
+                currentChunk = "";
+            }
+
+            if (cleanPara.length > maxChunkSize) {
+                // Split huge paragraph by sentences
+                const sentences = cleanPara.match(/[^.!?]+[.!?]+(\s+|$)/g) || [cleanPara];
+                let subChunk = "";
+                for (const sentence of sentences) {
+                    if (subChunk.length + sentence.length <= maxChunkSize) {
+                        subChunk += sentence;
+                    } else {
+                        if (subChunk) chunks.push(subChunk.trim());
+                        subChunk = sentence;
+                    }
+                }
+                if (subChunk) currentChunk = subChunk.trim();
+            } else {
+                currentChunk = cleanPara;
+            }
+        }
     }
-    return chunks;
+
+    if (currentChunk) {
+        chunks.push(currentChunk);
+    }
+
+    return chunks.filter(c => c.length > 20).map((c, index) => ({
+        text: c,
+        start: index * 100, 
+        end: (index * 100) + c.length
+    }));
 }
 
 module.exports = async function handler(req, res) {
@@ -49,9 +96,11 @@ module.exports = async function handler(req, res) {
         const text = guideline.guideline_text;
         if (!text) return res.status(400).json({ error: 'No text content' });
 
-        const chunks = chunkText(text);
+        // --- PHASE 1: SEMANTIC CHUNKING ---
+        const chunks = semanticChunking(text, 1000, 100);
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
+        // --- EMBEDDING ---
         const embeddingPromises = chunks.map(async (chunk, idx) => {
             try {
                 const response = await fetch(embedUrl, {
@@ -59,6 +108,12 @@ module.exports = async function handler(req, res) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ content: { parts: [{ text: chunk.text }] } })
                 });
+                
+                if (!response.ok) {
+                    console.warn(`Embedding failed for chunk ${idx}: ${response.statusText}`);
+                    return { ...chunk, embedding: null, chunk_index: idx };
+                }
+
                 const data = await response.json();
                 
                 return {
@@ -68,28 +123,33 @@ module.exports = async function handler(req, res) {
                 };
             } catch (err) { 
                 console.error(`Error embedding text chunk ${idx}:`, err);
-                return {
-                    text: chunk.text,
-                    embedding: null,
-                    chunk_index: idx,
-                };
+                return { ...chunk, embedding: null, chunk_index: idx };
             }
         });
 
         const results = await Promise.all(embeddingPromises);
 
-        // Firestore Write Batching (Limit: 500 ops per batch)
+        // --- FIRESTORE BATCH WRITE ---
         const BATCH_SIZE = 400; 
         let batch = db.batch();
         let opCounter = 0;
+        const sourceName = guideline.file_name || 'Direct Text Input';
 
         for (const chunkData of results) {
+            if (!chunkData.embedding) continue;
+
             const chunkRef = guidelineRef.collection('chunks').doc();
             batch.set(chunkRef, {
                 text: chunkData.text,
                 embedding: chunkData.embedding,
                 chunk_index: chunkData.chunk_index,
                 is_master_source: !!guideline.is_primary,
+                metadata: {
+                    source_file: sourceName,
+                    char_count: chunkData.text.length,
+                    type: "semantic_block",
+                    ingest_mode: "text_direct"
+                },
                 created_at: admin.firestore.FieldValue.serverTimestamp(),
             });
             opCounter++;
@@ -104,11 +164,13 @@ module.exports = async function handler(req, res) {
         // Final batch update
         batch.update(guidelineRef, {
             status: 'approved',
+            chunk_count: results.length,
+            processing_method: 'semantic_v2',
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
 
         await batch.commit();
-        res.status(200).json({ success: true, message: `Text processed into ${chunks.length} chunks` });
+        res.status(200).json({ success: true, message: `Text processed into ${chunks.length} semantic chunks` });
 
     } catch (e) {
         console.error("Text Ingest Error:", e);
