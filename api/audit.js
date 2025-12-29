@@ -123,68 +123,64 @@ ${productContext}
 `;
 }
 
-// Robust JSON parsing helper with repair capabilities for truncated responses
+// Robust JSON parsing helper with improved repair logic
 function safeJSONParse(text) {
-  const cleanAndParse = (str) => {
-    let cleaned = str.trim();
-    // Extract JSON block if marked with backticks
-    const markdownMatch = cleaned.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (markdownMatch) cleaned = markdownMatch[1].trim();
-
-    // Ensure it looks like a JSON object
-    const firstOpen = cleaned.indexOf('{');
-    if (firstOpen !== -1) {
-      cleaned = cleaned.substring(firstOpen);
-    }
-    
-    // Attempt parse
-    try {
-      return JSON.parse(cleaned);
-    } catch (e) {
-      throw e; // Throw to trigger repair logic
-    }
+  // Helper to remove markdown block markers
+  const stripMarkdown = (str) => {
+    const match = str.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+    return match ? match[1] : str;
   };
 
+  let candidate = stripMarkdown(text).trim();
+
+  // Attempt 1: Strict Parse (Best Case)
   try {
-    return cleanAndParse(text);
-  } catch (error) {
-    // Attempt repair for truncated JSON
-    console.warn('JSON Parse Error, attempting repair...', error.message);
+    return JSON.parse(candidate);
+  } catch (e) {
+    // Attempt 2: Extract strictly between first { and last } to handle trailing garbage text
+    const firstOpen = candidate.indexOf('{');
+    const lastClose = candidate.lastIndexOf('}');
     
-    let repaired = text.trim();
-    const markdownMatch = repaired.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
-    if (markdownMatch) repaired = markdownMatch[1].trim();
-    
-    const firstOpen = repaired.indexOf('{');
-    if (firstOpen !== -1) repaired = repaired.substring(firstOpen);
-
-    // Remove trailing comma if present (common in truncation)
-    if (repaired.trim().endsWith(',')) repaired = repaired.trim().slice(0, -1);
-    
-    // Check balance
-    const openBraces = (repaired.match(/{/g) || []).length;
-    const closeBraces = (repaired.match(/}/g) || []).length;
-    const openBrackets = (repaired.match(/\[/g) || []).length;
-    const closeBrackets = (repaired.match(/]/g) || []).length;
-    const quotes = (repaired.match(/"/g) || []).length;
-
-    // If odd quotes, we might have a truncated string. Close it.
-    if (quotes % 2 !== 0) repaired += '"';
-
-    // Close arrays/objects
-    for (let i = 0; i < openBrackets - closeBrackets; i++) repaired += ']';
-    for (let i = 0; i < openBraces - closeBraces; i++) repaired += '}';
-
-    try {
-      return JSON.parse(repaired);
-    } catch (finalError) {
-      console.error('Failed to repair JSON:', finalError);
-      return {
-         summary: "Lỗi phân tích cú pháp (JSON Error) do phản hồi bị cắt ngắn hoặc không hợp lệ.",
-         identified_issues: [],
-         raw: text
-      };
+    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+       const sub = candidate.substring(firstOpen, lastClose + 1);
+       try {
+         return JSON.parse(sub);
+       } catch (e2) {
+         // If exact extraction fails, fall through to repair using the extracted substring
+         candidate = sub; 
+       }
+    } else if (firstOpen !== -1) {
+       // Only start brace exists (Truncated response)
+       candidate = candidate.substring(firstOpen);
     }
+  }
+
+  // Attempt 3: Aggressive Repair for Truncation
+  try {
+      // Remove trailing comma (common in truncated lists)
+      if (candidate.trim().endsWith(',')) candidate = candidate.trim().slice(0, -1);
+      
+      // Balance quotes
+      if ((candidate.match(/"/g) || []).length % 2 !== 0) candidate += '"';
+      
+      // Balance brackets/braces
+      const openBrackets = (candidate.match(/\[/g) || []).length;
+      const closeBrackets = (candidate.match(/]/g) || []).length;
+      const openBraces = (candidate.match(/{/g) || []).length;
+      const closeBraces = (candidate.match(/}/g) || []).length;
+
+      for (let i = 0; i < openBrackets - closeBrackets; i++) candidate += ']';
+      for (let i = 0; i < openBraces - closeBraces; i++) candidate += '}';
+
+      return JSON.parse(candidate);
+  } catch (finalError) {
+      console.error("JSON Repair Failed:", finalError.message);
+      // Return a safe fallback object to prevent crash
+      return {
+          summary: "Lỗi: Phản hồi từ AI bị lỗi format hoặc cắt ngắn.",
+          identified_issues: [],
+          _raw_error: finalError.message
+      };
   }
 }
 
@@ -352,7 +348,8 @@ OUTPUT RULES (JSON ONLY)
       ];
       const HALLU_KEYWORDS = [
         'bịa đặt', 'hallucination', 'tự suy diễn', 'không có trong dữ liệu', 
-        'không có trong input', 'sai kiến thức', 'bịa thông tin', 'trích dẫn', 'nguồn'
+        'không có trong input', 'sai kiến thức', 'bịa thông tin', 'fake source', 'nguồn giả'
+        // Note: Removed generic 'trích dẫn', 'nguồn' to avoid false positives on 'missing citation' (Brand issue)
       ];
       
       // Keywords for explicit Logic/Time errors that should NOT be Product
@@ -416,7 +413,6 @@ OUTPUT RULES (JSON ONLY)
 
             // B. FORCE AI LOGIC
             // If it is explicitly a logic/time error, Force AI_LOGIC.
-            // This overrides Product if the error is about "Logic/Time" even if it mentions a product price.
             if (looksLikeLogic) {
                return { ...issue, category: 'ai_logic' };
             }
@@ -500,12 +496,14 @@ OUTPUT RULES (JSON ONLY)
     return res.status(200).json({ result: jsonResult, success: true });
   } catch (e) {
     console.error('Audit API Error:', e);
-    return res.status(200).json({
+    // Return 500 status code for server errors so frontend/monitoring can track it
+    return res.status(500).json({
       success: false,
+      error: e.message,
       result: {
         summary: `Hệ thống gặp sự cố: ${e.message}`,
         identified_issues: [],
-        version: 'v14.1-server',
+        version: 'v14.1-server-error',
       },
     });
   }
