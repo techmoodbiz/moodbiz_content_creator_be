@@ -3,6 +3,7 @@ import fetch from "node-fetch";
 import { GoogleGenAI } from "@google/genai";
 
 export default async function handler(req, res) {
+    // CORS Header Setting
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization");
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
 
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
+            console.error("Missing GEMINI_API_KEY environment variable");
             return res.status(500).json({ error: "Server API Key configuration missing" });
         }
 
@@ -66,7 +68,7 @@ export default async function handler(req, res) {
              if (text) extractedData.headings.push(text);
         });
 
-        // 2. Analyze with Gemini 3.0 Flash
+        // 2. Analyze with Gemini
         const contentContext = `
 TITLE: ${extractedData.title}
 DESCRIPTION: ${extractedData.metaDescription}
