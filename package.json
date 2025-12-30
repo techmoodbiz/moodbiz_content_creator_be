@@ -12,14 +12,16 @@
   "type": "commonjs",
   "dependencies": {
     "@google/genai": "*",
-    "@google/generative-ai": "^0.24.1",
-    "@napi-rs/canvas": "^0.1.83",
     "busboy": "^1.6.0",
-    "cheerio": "^1.1.2",
-    "firebase-admin": "^12.7.0",
-    "mammoth": "^1.11.0",
-    "node-fetch": "^2.6.7",
-    "pdf-parse": "^1.1.4",
-    "pdfjs-dist": "^5.4.449"
+    "cheerio": "^1.0.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "firebase": "^11.2.0",
+    "firebase-admin": "^13.0.2",
+    "lucide-react": "^0.471.0",
+    "mammoth": "^1.9.0",
+    "node-fetch": "^3.3.2",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
   }
 }
