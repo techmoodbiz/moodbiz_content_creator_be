@@ -2,6 +2,7 @@
 const fetch = require('node-fetch');
 const cheerio = require('cheerio');
 const https = require('https');
+const { GoogleGenAI } = require("@google/genai");
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
@@ -32,6 +33,7 @@ module.exports = async function handler(req, res) {
       'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
     };
 
+    // 1. Fetch HTML
     const response = await fetch(url, {
       method: 'GET',
       agent: url.startsWith('https') ? httpsAgent : null,
@@ -50,29 +52,69 @@ module.exports = async function handler(req, res) {
     const html = await response.text();
     const $ = cheerio.load(html);
 
+    // 2. Basic Cleanup (Giảm nhiễu ban đầu để tiết kiệm token)
     $('script, style, noscript, iframe, svg, canvas, video, audio, link, meta').remove();
     $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
 
     const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
     
-    let textContent = '';
-    $('p, h1, h2, h3, h4, h5, h6, li, article').each((i, el) => {
-      const text = $(el).text().trim();
-      if (text.length > 20) {
-        textContent += text + '\n\n';
-      }
+    // Extract raw text but keep structure hints
+    let rawText = '';
+    $('body').find('p, h1, h2, h3, h4, h5, h6, li, article, div').each((i, el) => {
+       const text = $(el).text().trim().replace(/\s+/g, ' ');
+       if (text.length > 0) rawText += text + "\n";
     });
 
-    if (!textContent || textContent.length < 100) {
-       textContent = $('body').text().substring(0, 5000);
+    // Fallback if structured extraction failed
+    if (rawText.length < 100) {
+        rawText = $('body').text().replace(/\s+/g, ' ').trim();
+    }
+
+    let finalContent = rawText;
+
+    // 3. INTELLIGENT CLEANING WITH GEMINI 3.0 FLASH
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (apiKey && rawText.length > 200) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: apiKey });
+            
+            // Prompt chuyên dụng để lọc rác UI
+            const prompt = `
+You are a Web Scraper & Content Cleaner Agent.
+Your task is to extract the **CORE CONTENT** from the noisy raw text below for an Audit System.
+
+RAW TEXT FROM URL (${url}):
+"""
+${rawText.substring(0, 100000)}
+"""
+
+RULES:
+1. **REMOVE NOISE**: Delete navigation menus, footer links ("Contact Us", "Privacy Policy", "Terms"), cookie warnings, "Read more" buttons, ads, and sidebars.
+2. **PRESERVE MEANING**: Do not summarize or rewrite paragraphs. Keep the original sentences exactly as they are (important for auditing spelling/grammar). Just remove the surrounding garbage.
+3. **FORMAT**: Output clean **Markdown** (headers #, paragraphs, lists -).
+
+OUTPUT MARKDOWN ONLY:
+`;
+            const geminiRes = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt
+            });
+
+            if (geminiRes.text && geminiRes.text.length > 50) {
+                finalContent = geminiRes.text;
+            }
+        } catch (aiError) {
+            console.error("Gemini Scrape Cleaning Error:", aiError.message);
+            // Fallback to rawText if AI fails
+        }
     }
 
     return res.status(200).json({
       success: true,
       url: url,
       title: title,
-      content: textContent,
-      text: textContent
+      content: finalContent,
+      text: finalContent
     });
 
   } catch (error) {
