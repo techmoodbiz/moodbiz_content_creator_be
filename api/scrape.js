@@ -1,4 +1,3 @@
-
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 import https from 'https';
@@ -52,20 +51,18 @@ export default async function handler(req, res) {
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // 2. Basic Cleanup (Giảm nhiễu ban đầu để tiết kiệm token)
+    // 2. Basic Cleanup
     $('script, style, noscript, iframe, svg, canvas, video, audio, link, meta').remove();
     $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
 
     const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
     
-    // Extract raw text but keep structure hints
     let rawText = '';
     $('body').find('p, h1, h2, h3, h4, h5, h6, li, article, div').each((i, el) => {
        const text = $(el).text().trim().replace(/\s+/g, ' ');
        if (text.length > 0) rawText += text + "\n";
     });
 
-    // Fallback if structured extraction failed
     if (rawText.length < 100) {
         rawText = $('body').text().replace(/\s+/g, ' ').trim();
     }
@@ -78,7 +75,6 @@ export default async function handler(req, res) {
         try {
             const ai = new GoogleGenAI({ apiKey: apiKey });
             
-            // Prompt chuyên dụng để lọc rác UI
             const prompt = `
 You are a Web Scraper & Content Cleaner Agent.
 Your task is to extract the **CORE CONTENT** from the noisy raw text below for an Audit System.
@@ -105,7 +101,6 @@ OUTPUT MARKDOWN ONLY:
             }
         } catch (aiError) {
             console.error("Gemini Scrape Cleaning Error:", aiError.message);
-            // Fallback to rawText if AI fails
         }
     }
 

@@ -1,4 +1,3 @@
-
 import busboy from 'busboy';
 import mammoth from 'mammoth';
 import { GoogleGenAI } from "@google/genai";
@@ -44,15 +43,11 @@ INSTRUCTIONS:
 - Summarize Visual Style (colors, vibe) if visible or described.
 `;
 
-            // --- STRATEGY: DOCX uses Mammoth, PDF/Image uses Gemini Vision ---
-            
             if (filename.endsWith('.docx') || mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-                // Word Documents: Extract text first
                 const result = await mammoth.extractRawText({ buffer: fileBuffer });
                 textContent = result.value;
                 prompt += `\n\nDOCUMENT CONTENT:\n${textContent.substring(0, 50000)}`;
                 
-                // Call Gemini with Text
                 const response = await ai.models.generateContent({
                     model: 'gemini-3-flash-preview',
                     contents: [{ text: prompt }],
@@ -65,12 +60,8 @@ INSTRUCTIONS:
                 return sendResponse(res, response);
 
             } else {
-                // PDF or Images: Use Gemini Vision (Multimodal) directly
-                // This replaces pdf-parse and works for Images too
                 const base64Data = fileBuffer.toString('base64');
                 let aiMimeType = mime;
-                
-                // Fallback mime types if generic
                 if (filename.endsWith('.pdf')) aiMimeType = 'application/pdf';
                 else if (filename.endsWith('.png')) aiMimeType = 'image/png';
                 else if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) aiMimeType = 'image/jpeg';
@@ -100,9 +91,6 @@ INSTRUCTIONS:
 }
 
 function getResponseSchema() {
-    // Define strict schema types from @google/genai
-    // Note: In raw JSON request this is just an object, but using the SDK types is cleaner if imported.
-    // Here we construct the raw object expected by the SDK.
     return {
         type: "OBJECT",
         properties: {
@@ -111,7 +99,7 @@ function getResponseSchema() {
             targetAudience: { type: "STRING" },
             tone: { type: "STRING" },
             coreValues: { type: "ARRAY", items: { type: "STRING" } },
-            keywords: { type: "ARRAY", items: { type: "STRING" } }, // Used for USP
+            keywords: { type: "ARRAY", items: { type: "STRING" } },
             visualStyle: { type: "STRING" },
             dos: { type: "ARRAY", items: { type: "STRING" } },
             donts: { type: "ARRAY", items: { type: "STRING" } },
