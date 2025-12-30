@@ -16,7 +16,6 @@ module.exports = async function handler(req, res) {
   }
 
   try {
-    // 1. Nhận Prompt đã được lắp ráp từ Frontend
     const { constructedPrompt, text } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
@@ -30,7 +29,7 @@ module.exports = async function handler(req, res) {
        finalPrompt = `Please audit the following text based on general marketing standards:\n"${text}"\nOutput JSON format.`;
     }
 
-    // 2. Định nghĩa Schema để ép kiểu dữ liệu trả về (Strict JSON)
+    // DEFINING STRICT SCHEMA
     const auditSchema = {
       type: "OBJECT",
       properties: {
@@ -42,7 +41,7 @@ module.exports = async function handler(req, res) {
             properties: {
               category: { type: "STRING", enum: ["language", "ai_logic", "brand", "product"], description: "Loại lỗi" },
               problematic_text: { type: "STRING", description: "Đoạn văn bản bị lỗi" },
-              citation: { type: "STRING", description: "Quy tắc bị vi phạm" },
+              citation: { type: "STRING", description: "Quy tắc bị vi phạm (Trích dẫn cụ thể từ SOP/Brand/Product)" },
               reason: { type: "STRING", description: "Giải thích lý do lỗi" },
               severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ nghiêm trọng" },
               suggestion: { type: "STRING", description: "Gợi ý sửa đổi" }
@@ -54,7 +53,6 @@ module.exports = async function handler(req, res) {
       required: ["summary", "identified_issues"]
     };
 
-    // 3. Gọi Google Gemini API
     const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -64,7 +62,7 @@ module.exports = async function handler(req, res) {
           temperature: 0.1,
           maxOutputTokens: 8192,
           responseMimeType: "application/json",
-          responseSchema: auditSchema // Áp dụng Schema
+          responseSchema: auditSchema
         }
       })
     });
@@ -76,8 +74,6 @@ module.exports = async function handler(req, res) {
     }
 
     const data = await response.json();
-    
-    // 4. Trả kết quả
     const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
 
     return res.status(200).json({
