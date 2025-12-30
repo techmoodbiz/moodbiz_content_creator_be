@@ -1,7 +1,7 @@
 
-// api/rag-generate.js
-const fetch = require("node-fetch");
-const admin = require("firebase-admin");
+import fetch from "node-fetch";
+import admin from "firebase-admin";
+import { GoogleGenAI } from "@google/genai";
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -24,6 +24,7 @@ function cosineSimilarity(vecA, vecB) {
     normA += vecA[i] * vecA[i];
     normB += vecB[i] * vecB[i];
   }
+  if (normA === 0 || normB === 0) return 0;
   return dotProduct / (Math.sqrt(normA) * Math.sqrt(normB));
 }
 
@@ -77,7 +78,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
   }
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -88,17 +89,20 @@ module.exports = async function handler(req, res) {
     try {
         const { brand, topic, platform, userText, systemPrompt } = req.body;
         const apiKey = process.env.GEMINI_API_KEY;
+        const ai = new GoogleGenAI({ apiKey: apiKey });
 
         let queryEmbedding = null;
         try {
-            const embedRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ content: { parts: [{ text: `${topic} ${platform}` }] } })
+            // Using raw REST for embedding to match existing logic closely, or migrate to SDK if preferred.
+            // Migrating to SDK for consistency:
+            const embedRes = await ai.models.embedContent({
+               model: "embedding-001",
+               content: { parts: [{ text: `${topic} ${platform}` }] }
             });
-            const embedData = await embedRes.json();
-            queryEmbedding = embedData.embedding?.values;
-        } catch (e) {}
+            queryEmbedding = embedRes.embedding.values;
+        } catch (e) {
+           console.warn("Embedding failed, falling back to non-semantic retrieval", e.message);
+        }
 
         const { text: ragContext, sources } = await getConsolidatedContext(brand.id, queryEmbedding);
 
@@ -125,27 +129,22 @@ ${userText ? `Ghi chú: ${userText}` : ""}
 ${systemPrompt}
 `;
 
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ 
-              contents: [{ parts: [{ text: finalPrompt }] }],
-              generationConfig: {
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: [{ text: finalPrompt }],
+            config: {
                 temperature: 0.7,
                 topP: 0.95
-              }
-            })
+            }
         });
 
-        const data = await response.json();
-        const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "AI không thể phản hồi.";
-
         res.status(200).json({
-            result: resultText,
+            result: response.text || "AI không thể phản hồi.",
             citations: sources
         });
 
     } catch (e) {
+        console.error("RAG Generate Error", e);
         res.status(500).json({ error: e.message });
     }
-};
+}

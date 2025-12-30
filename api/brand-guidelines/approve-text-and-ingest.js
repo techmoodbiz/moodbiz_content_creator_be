@@ -1,6 +1,4 @@
-
 import admin from 'firebase-admin';
-import fetch from 'node-fetch';
 import { GoogleGenAI } from "@google/genai";
 
 if (!admin.apps.length) {
@@ -65,7 +63,6 @@ export default async function handler(req, res) {
         if (!originalText) return res.status(400).json({ error: 'No text content' });
 
         // --- INTELLIGENT CLEANING WITH GEMINI 3.0 ---
-        // Clean only if text is long enough to potentially contain garbage
         let processedText = originalText;
         if (originalText.length > 300) {
             console.log("Cleaning text with Gemini 3.0...");
@@ -100,6 +97,7 @@ ${originalText.substring(0, 50000)}
         const chunks = semanticChunking(processedText, 1000, 100);
         const embedUrl = `https://generativelanguage.googleapis.com/v1beta/models/embedding-001:embedContent?key=${apiKey}`;
 
+        // Use global fetch (Node 18+)
         const embeddingPromises = chunks.map(async (chunk, idx) => {
             try {
                 const response = await fetch(embedUrl, {

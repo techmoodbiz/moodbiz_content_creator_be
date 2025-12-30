@@ -1,7 +1,7 @@
 
-const fetch = require('node-fetch');
+import { GoogleGenAI } from "@google/genai";
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   // CORS Configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -29,7 +29,10 @@ module.exports = async function handler(req, res) {
        finalPrompt = `Please audit the following text based on general marketing standards:\n"${text}"\nOutput JSON format.`;
     }
 
+    const ai = new GoogleGenAI({ apiKey: apiKey });
+
     // DEFINING STRICT SCHEMA
+    // Note: SDK Types like Type.STRING are cleaner, but standard JSON Schema objects work too.
     const auditSchema = {
       type: "OBJECT",
       properties: {
@@ -53,28 +56,18 @@ module.exports = async function handler(req, res) {
       required: ["summary", "identified_issues"]
     };
 
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${apiKey}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: finalPrompt }] }],
-        generationConfig: {
-          temperature: 0.1,
-          maxOutputTokens: 8192,
-          responseMimeType: "application/json",
-          responseSchema: auditSchema
+    const response = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: [{ text: finalPrompt }],
+        config: {
+            temperature: 0.1,
+            maxOutputTokens: 8192,
+            responseMimeType: "application/json",
+            responseSchema: auditSchema
         }
-      })
     });
 
-    if (!response.ok) {
-      const errText = await response.text();
-      console.error("Gemini API Error:", errText);
-      throw new Error(`Gemini API Failed: ${response.status} ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    const resultText = data.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+    const resultText = response.text || "{}";
 
     return res.status(200).json({
       success: true,
@@ -88,4 +81,4 @@ module.exports = async function handler(req, res) {
       error: error.message || "Internal Server Error"
     });
   }
-};
+}

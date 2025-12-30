@@ -1,5 +1,5 @@
 
-const admin = require("firebase-admin");
+import admin from "firebase-admin";
 
 if (!admin.apps.length) {
     try {
@@ -18,7 +18,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const auth = admin.auth();
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     // Cấu hình CORS đầy đủ nhất
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
@@ -67,7 +67,6 @@ module.exports = async function handler(req, res) {
             await auth.deleteUser(userId);
         } catch (e) {
             console.log("User not found in Auth or already deleted:", e.message);
-            // Không return error ở đây vì mục đích là dọn dẹp, nếu Auth đã mất thì coi như xong bước này
         }
 
         // 2. Xóa user khỏi Firestore
@@ -79,4 +78,4 @@ module.exports = async function handler(req, res) {
         console.error("Delete user error:", error);
         return res.status(500).json({ error: "Server error: " + error.message });
     }
-};
+}

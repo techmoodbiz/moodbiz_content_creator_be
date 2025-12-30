@@ -1,7 +1,6 @@
 
-// api/brand-guidelines/upload.js
-const admin = require('firebase-admin');
-const busboy = require('busboy');
+import admin from 'firebase-admin';
+import busboy from 'busboy';
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -18,7 +17,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const bucket = admin.storage().bucket();
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -75,4 +74,4 @@ module.exports = async function handler(req, res) {
     } catch (e) {
         return res.status(500).json({ error: 'Server error', message: e.message });
     }
-};
+}

@@ -1,6 +1,5 @@
 
-// api/create-user.js
-const admin = require("firebase-admin");
+import admin from "firebase-admin";
 
 if (!admin.apps.length) {
     try {
@@ -19,7 +18,7 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const auth = admin.auth();
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     res.setHeader("Access-Control-Allow-Origin", "*");
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
     res.setHeader("Access-Control-Allow-Headers", "X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization");
@@ -85,4 +84,4 @@ module.exports = async function handler(req, res) {
     } catch (error) {
         return res.status(500).json({ error: "Server error: " + error.message });
     }
-};
+}
