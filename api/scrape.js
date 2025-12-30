@@ -1,14 +1,14 @@
 
-const fetch = require('node-fetch');
-const cheerio = require('cheerio');
-const https = require('https');
-const { GoogleGenAI } = require("@google/genai");
+import fetch from 'node-fetch';
+import * as cheerio from 'cheerio';
+import https from 'https';
+import { GoogleGenAI } from "@google/genai";
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -123,4 +123,4 @@ OUTPUT MARKDOWN ONLY:
       error: error.message
     });
   }
-};
+}

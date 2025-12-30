@@ -1,8 +1,7 @@
 
-// api/brand-guidelines/approve-text-and-ingest.js
-const admin = require('firebase-admin');
-const fetch = require('node-fetch');
-const { GoogleGenAI } = require("@google/genai");
+import admin from 'firebase-admin';
+import fetch from 'node-fetch';
+import { GoogleGenAI } from "@google/genai";
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -46,7 +45,7 @@ function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
     return chunks.filter(c => c.length > 20).map((c, index) => ({ text: c, start: index * 100, end: (index * 100) + c.length }));
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -65,18 +64,37 @@ module.exports = async function handler(req, res) {
         let originalText = guideline.guideline_text;
         if (!originalText) return res.status(400).json({ error: 'No text content' });
 
-        // --- INTELLIGENT CLEANING ---
+        // --- INTELLIGENT CLEANING WITH GEMINI 3.0 ---
+        // Clean only if text is long enough to potentially contain garbage
         let processedText = originalText;
-        if (originalText.length > 200) {
+        if (originalText.length > 300) {
             console.log("Cleaning text with Gemini 3.0...");
             try {
                 const ai = new GoogleGenAI({ apiKey: apiKey });
                 const cleanResponse = await ai.models.generateContent({
                     model: 'gemini-3-flash-preview',
-                    contents: [{ text: `You are a Data Curator. Clean this scraped text. Remove UI elements (menus, footers, ads). Structure as Markdown.\n\nRAW TEXT:\n${originalText.substring(0, 100000)}` }]
+                    contents: [{ text: `
+You are a Data Curator for a RAG System.
+Your task: CLEAN the following raw text.
+1. Remove "UI Noise" (Navigation menus, Footers, "Read more", "Accept Cookies", Advertisement placeholders).
+2. Fix broken line breaks.
+3. Keep the core informational content intact.
+4. Output Markdown.
+
+RAW TEXT:
+"""
+${originalText.substring(0, 50000)}
+"""
+` }]
                 });
-                if (cleanResponse.text && cleanResponse.text.length > 50) processedText = cleanResponse.text;
-            } catch (e) { console.error("Cleaning failed", e); }
+                
+                if (cleanResponse.text && cleanResponse.text.length > 50) {
+                    processedText = cleanResponse.text;
+                }
+            } catch (e) { 
+                console.error("Cleaning failed", e); 
+                // Fallback to original text if AI fails
+            }
         }
 
         const chunks = semanticChunking(processedText, 1000, 100);
@@ -129,4 +147,4 @@ module.exports = async function handler(req, res) {
         console.error("Text Ingest Error:", e);
         res.status(500).json({ error: 'Server error', message: e.message });
     }
-};
+}

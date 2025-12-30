@@ -1,9 +1,8 @@
 
-// api/brand-guidelines/approve-and-ingest.js
-const admin = require('firebase-admin');
-const fetch = require('node-fetch');
-const mammoth = require('mammoth');
-const { GoogleGenAI } = require("@google/genai");
+import admin from 'firebase-admin';
+import fetch from 'node-fetch';
+import mammoth from 'mammoth';
+import { GoogleGenAI } from "@google/genai";
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -63,7 +62,7 @@ function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
     }));
 }
 
-module.exports = async function handler(req, res) {
+export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -90,22 +89,41 @@ module.exports = async function handler(req, res) {
         const fileName = (guideline.file_name || '').toLowerCase();
 
         // --- VISUAL OCR USING GEMINI 3.0 FLASH ---
+        const ai = new GoogleGenAI({ apiKey: apiKey });
+
         if (fileName.endsWith('.pdf')) {
             console.log("Processing PDF with Gemini Vision...");
-            const ai = new GoogleGenAI({ apiKey: apiKey });
             const base64Data = fileBuffer.toString('base64');
             
-            // Gửi trực tiếp PDF (mimeType application/pdf) cho Gemini 3.0 xử lý
+            // Send direct PDF buffer to Gemini (MIME type application/pdf)
+            // Gemini 3.0 Flash is multimodal and can read PDFs natively
             const response = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
                 contents: [
                     { inlineData: { mimeType: 'application/pdf', data: base64Data } },
-                    { text: "Extract ALL text from this document. \n1. Keep the structure (Headers, Lists, Tables) as Markdown. \n2. Do NOT summarize. \n3. If there are visual examples of Do's/Don'ts, describe them." }
+                    { text: "Extract ALL text from this document.\nRULES:\n1. Keep structure (Headers, Lists) as Markdown.\n2. Do NOT summarize. I need the full content.\n3. Represents tables as Markdown tables." }
                 ]
             });
             text = response.text || "";
             
+        } else if (fileName.match(/\.(jpg|jpeg|png|webp)$/)) {
+            console.log("Processing Image with Gemini Vision...");
+            const base64Data = fileBuffer.toString('base64');
+            let mimeType = 'image/png';
+            if (fileName.endsWith('jpg') || fileName.endsWith('jpeg')) mimeType = 'image/jpeg';
+            if (fileName.endsWith('webp')) mimeType = 'image/webp';
+
+             const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: [
+                    { inlineData: { mimeType: mimeType, data: base64Data } },
+                    { text: "Transcribe the text in this image to Markdown." }
+                ]
+            });
+            text = response.text || "";
+
         } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
+            // Mammoth is good for Docx text
             const result = await mammoth.extractRawText({ buffer: fileBuffer });
             text = result.value;
         } else {
@@ -166,4 +184,4 @@ module.exports = async function handler(req, res) {
         console.error("Ingest Error:", e);
         res.status(500).json({ error: 'Server error', message: e.message });
     }
-};
+}
