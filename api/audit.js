@@ -24,7 +24,10 @@ export default async function handler(req, res) {
     let finalPrompt = constructedPrompt;
     if (!finalPrompt) {
        if (!text) return res.status(400).json({ error: "Missing text content to audit" });
-       finalPrompt = `Please audit the following text based on general marketing standards:\n"${text}"\nOutput JSON format.`;
+       finalPrompt = `Please audit the following text based on general marketing standards:\n"""\n${text}\n"""\nOutput JSON format.`;
+    } else {
+        // Nếu prompt đã được construct, hãy đảm bảo text được wrap an toàn nếu chưa có
+        // Tuy nhiên constructedPrompt thường đã include text. Chúng ta append instruction cuối cùng.
     }
 
     // Add explicit instruction to forbid markdown even if schema is used
