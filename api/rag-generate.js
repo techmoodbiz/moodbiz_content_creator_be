@@ -130,7 +130,7 @@ ${systemPrompt}
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ 
               contents: [{ parts: [{ text: finalPrompt }] }],
-              config: {
+              generationConfig: {
                 temperature: 0.7,
                 topP: 0.95
               }

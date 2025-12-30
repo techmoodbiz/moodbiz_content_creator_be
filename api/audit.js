@@ -38,7 +38,7 @@ module.exports = async function handler(req, res) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: finalPrompt }] }],
-        config: {
+        generationConfig: {
           temperature: 0.1, // Low temperature for consistent audit results
           maxOutputTokens: 8192,
           responseMimeType: "application/json"
