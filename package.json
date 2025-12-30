@@ -20,7 +20,7 @@
     "firebase-admin": "^13.0.2",
     "lucide-react": "^0.471.0",
     "mammoth": "^1.9.0",
-    "node-fetch": "^3.3.2",
+  "node-fetch": "^2.6.7",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   }
