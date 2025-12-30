@@ -21,17 +21,10 @@ export default async function handler(req, res) {
       throw new Error("Server Misconfiguration: Missing API Key");
     }
 
-    let finalPrompt = constructedPrompt;
-    if (!finalPrompt) {
-       if (!text) return res.status(400).json({ error: "Missing text content to audit" });
-       finalPrompt = `Please audit the following text based on general marketing standards:\n"""\n${text}\n"""\nOutput JSON format.`;
-    } else {
-        // Nếu prompt đã được construct, hãy đảm bảo text được wrap an toàn nếu chưa có
-        // Tuy nhiên constructedPrompt thường đã include text. Chúng ta append instruction cuối cùng.
+    // Input Validation
+    if (!constructedPrompt && !text) {
+        return res.status(400).json({ error: "Missing text content to audit" });
     }
-
-    // Add explicit instruction to forbid markdown even if schema is used
-    finalPrompt += "\n\nIMPORTANT: Output RAW JSON only. Do not wrap in markdown code blocks (```json).";
 
     const { GoogleGenAI } = await import("@google/genai");
     const ai = new GoogleGenAI({ apiKey: apiKey });
@@ -47,10 +40,10 @@ export default async function handler(req, res) {
             type: "OBJECT",
             properties: {
               category: { type: "STRING", enum: ["language", "ai_logic", "brand", "product"], description: "Loại lỗi" },
-              problematic_text: { type: "STRING", description: "Đoạn văn bản bị lỗi" },
-              citation: { type: "STRING", description: "Quy tắc bị vi phạm (Trích dẫn cụ thể từ SOP/Brand/Product)" },
-              reason: { type: "STRING", description: "Giải thích lý do lỗi" },
-              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ nghiêm trọng" },
+              problematic_text: { type: "STRING", description: "Đoạn văn bản bị lỗi (Trích dẫn chính xác, max 150 ký tự)" },
+              citation: { type: "STRING", description: "Quy tắc bị vi phạm" },
+              reason: { type: "STRING", description: "Giải thích lý do" },
+              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ" },
               suggestion: { type: "STRING", description: "Gợi ý sửa đổi" }
             },
             required: ["category", "problematic_text", "reason", "severity", "suggestion"]
@@ -60,11 +53,23 @@ export default async function handler(req, res) {
       required: ["summary", "identified_issues"]
     };
 
+    // Construct prompt
+    let finalPrompt = constructedPrompt;
+    if (!finalPrompt) {
+       // Fallback simple prompt
+       finalPrompt = `Please audit the following text based on general marketing standards:\n"""\n${text}\n"""`;
+    }
+
+    // REINFORCE JSON INSTRUCTION AT THE VERY END (Sandwich Prompting)
+    // Điều này cực kỳ quan trọng với nội dung dài, giúp AI nhớ lại nhiệm vụ format cuối cùng
+    finalPrompt += "\n\nSYSTEM REMINDER: You MUST output a valid JSON object strictly matching the defined schema. No Markdown formatting. No introductory text.";
+
+    // Use gemini-3-flash-preview as requested
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
-        contents: [{ text: finalPrompt }],
+        contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
         config: {
-            temperature: 0.1,
+            temperature: 0.1, // Low temperature for deterministic output
             maxOutputTokens: 8192,
             responseMimeType: "application/json",
             responseSchema: auditSchema
@@ -73,7 +78,7 @@ export default async function handler(req, res) {
 
     let resultText = response.text || "{}";
 
-    // Clean up markdown if AI ignored instructions
+    // Standardize output
     resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
 
     return res.status(200).json({
