@@ -1,7 +1,7 @@
 
 import fetch from "node-fetch";
 import admin from "firebase-admin";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from "@google/genai/node";
 
 if (!admin.apps.length) {
   admin.initializeApp({

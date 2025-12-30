@@ -1,7 +1,7 @@
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 import https from 'https';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from "@google/genai/node";
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,

@@ -1,6 +1,6 @@
 import busboy from 'busboy';
 import mammoth from 'mammoth';
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI } from "@google/genai/node";
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
