@@ -1,12 +1,15 @@
+
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 import https from 'https';
 
+// Agent để bypass lỗi SSL certificate (nếu có)
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
 });
 
 export default async function handler(req, res) {
+  // Config CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -22,100 +25,157 @@ export default async function handler(req, res) {
   try {
     const { url } = req.body;
 
-    if (!url || typeof url !== 'string') {
-      return res.status(400).json({ error: 'URL is required' });
-    }
+    if (!url) return res.status(400).json({ error: 'URL is required' });
 
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-    };
-
-    // 1. Fetch HTML
+    // 1. Fetch HTML với User-Agent giả lập Chrome để tránh bị chặn
     const response = await fetch(url, {
       method: 'GET',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+        'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      },
       agent: url.startsWith('https') ? httpsAgent : null,
-      headers: headers,
-      redirect: 'follow',
-      timeout: 20000
+      timeout: 20000 // Tăng timeout lên 20s
     });
 
     if (!response.ok) {
-      if (response.status === 403) {
-         throw new Error("Website này chặn quyền truy cập tự động. Vui lòng copy text thủ công.");
-      }
-      throw new Error(`Không thể truy cập URL (Status: ${response.status})`);
+       throw new Error(`Website returned status ${response.status}`);
     }
 
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // 2. Basic Cleanup
-    $('script, style, noscript, iframe, svg, canvas, video, audio, link, meta').remove();
-    $('header, nav, footer, aside, [role="banner"], [role="navigation"], [role="contentinfo"]').remove();
+    // 2. Extract Metadata (Thông tin quan trọng nhất)
+    const metadata = {
+        title: $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '',
+        description: $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '',
+        keywords: $('meta[name="keywords"]').attr('content') || ''
+    };
 
-    const title = $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '';
+    // 3. Remove Clutter (Xóa rác kỹ hơn)
+    const tagsToRemove = [
+        'script', 'style', 'noscript', 'iframe', 'svg', 'video', 'audio', 'canvas', 'map', 'object',
+        'link', 'meta', // Đã lấy meta ở trên rồi
+        '[hidden]', '.hidden',
+        // Common noise classes/ids
+        '#header', '.header', 'header',
+        '#footer', '.footer', 'footer',
+        'nav', '.nav', '.navigation', '.menu', '#menu',
+        '.sidebar', '#sidebar', 'aside',
+        '.ads', '.advertisement', '.ad-banner',
+        '.cookie-banner', '#cookie-banner', '.gdpr',
+        '.social-share', '.share-buttons',
+        '.comments', '#comments', '.comment-section',
+        '.related-posts', '.recommended',
+        '.popup', '.modal',
+        '.login', '.signup', '.auth'
+    ];
+    $(tagsToRemove.join(', ')).remove();
     
-    let rawText = '';
-    $('body').find('p, h1, h2, h3, h4, h5, h6, li, article, div').each((i, el) => {
-       const text = $(el).text().trim().replace(/\s+/g, ' ');
-       if (text.length > 0) rawText += text + "\n";
+    // 4. Smart Content Extraction Strategy
+    let $content = null;
+    
+    // Ưu tiên thẻ ngữ nghĩa chứa nội dung bài viết
+    const contentSelectors = [
+        'article', 
+        '[role="main"]', 
+        '.post-content', 
+        '.entry-content', 
+        '#content', 
+        '.content', 
+        '.article-body', 
+        'main'
+    ];
+    
+    for (const selector of contentSelectors) {
+        if ($(selector).length > 0) {
+            $content = $(selector).first(); // Lấy phần tử đầu tiên khớp
+            break;
+        }
+    }
+
+    // Fallback: Nếu không tìm thấy main content, dùng body (đã được dọn dẹp)
+    if (!$content) {
+        $content = $('body');
+    }
+
+    // 5. Structure Preservation (Giữ cấu trúc xuống dòng)
+    // Thay thế các thẻ block bằng ký tự xuống dòng để text không bị dính chùm
+    $content.find('br').replaceWith('\n');
+    $content.find('p, div, h1, h2, h3, h4, h5, h6, li, tr').each((i, el) => {
+        $(el).after('\n');
     });
 
-    if (rawText.length < 100) {
-        rawText = $('body').text().replace(/\s+/g, ' ').trim();
+    // Lấy text và làm sạch khoảng trắng thừa
+    let rawText = $content.text();
+    // Thay thế nhiều dòng trống liên tiếp bằng 1 dòng trống
+    rawText = rawText.replace(/\n\s*\n/g, '\n\n').trim(); 
+
+    if (rawText.length < 50) {
+        // Fallback: Nếu nội dung quá ngắn, thử lấy lại toàn bộ body text
+        rawText = $('body').text().replace(/\n\s*\n/g, '\n\n').trim();
+        if (rawText.length < 50) {
+             throw new Error("Nội dung trang web quá ngắn hoặc được render bằng JavaScript (SPA).");
+        }
     }
 
     let finalContent = rawText;
 
-    // 3. INTELLIGENT CLEANING WITH GEMINI 3.0 FLASH
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (apiKey && rawText.length > 200) {
+    // 6. Gemini Cleaning & Structuring (QUAN TRỌNG)
+    if (process.env.GEMINI_API_KEY) {
         try {
-            const { GoogleGenAI } = await import("@google/genai/node");
-            const ai = new GoogleGenAI({ apiKey: apiKey });
+            const { GoogleGenAI } = await import("@google/genai");
+            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
             
             const prompt = `
-You are a Web Scraper & Content Cleaner Agent.
-Your task is to extract the **CORE CONTENT** from the noisy raw text below for an Audit System.
+Role: Web Content Extractor.
+Task: Reconstruct the main article from the raw scraped text below.
 
-RAW TEXT FROM URL (${url}):
+Context Info:
+- Title: ${metadata.title}
+- Description: ${metadata.description}
+
+Instructions:
+1. Ignore navigation menus, footers, copyright, and irrelevant links.
+2. Focus on the main body content related to the Title.
+3. Preserve the original meaning and structure (headings, paragraphs).
+4. Output cleanly formatted text (Markdown is preferred).
+
+Raw Scraped Text:
 """
-${rawText.substring(0, 100000)}
+${rawText.substring(0, 40000)} // Giới hạn token
 """
-
-RULES:
-1. **REMOVE NOISE**: Delete navigation menus, footer links ("Contact Us", "Privacy Policy", "Terms"), cookie warnings, "Read more" buttons, ads, and sidebars.
-2. **PRESERVE MEANING**: Do not summarize or rewrite paragraphs. Keep the original sentences exactly as they are (important for auditing spelling/grammar). Just remove the surrounding garbage.
-3. **FORMAT**: Output clean **Markdown** (headers #, paragraphs, lists -).
-
-OUTPUT MARKDOWN ONLY:
 `;
-            const geminiRes = await ai.models.generateContent({
+            const result = await ai.models.generateContent({
                 model: 'gemini-3-flash-preview',
-                contents: prompt
+                contents: [{ text: prompt }]
             });
-
-            if (geminiRes.text && geminiRes.text.length > 50) {
-                finalContent = geminiRes.text;
+            
+            if (result.text && result.text.length > 50) {
+                finalContent = result.text;
             }
-        } catch (aiError) {
-            console.error("Gemini Scrape Cleaning Error:", aiError.message);
+        } catch (e) {
+            console.warn("Gemini cleaning failed, using raw text:", e.message);
+            // Fallback: prepend metadata to raw text for context
+            finalContent = `Title: ${metadata.title}\nDescription: ${metadata.description}\n\n${rawText}`;
         }
+    } else {
+        // Nếu không có AI, vẫn ghép metadata vào để kết quả tốt hơn
+        finalContent = `Title: ${metadata.title}\nDescription: ${metadata.description}\n\n${rawText}`;
     }
 
     return res.status(200).json({
-      success: true,
-      url: url,
-      title: title,
-      content: finalContent,
-      text: finalContent
+        success: true,
+        text: finalContent,
+        metadata: metadata,
+        url: url
     });
 
   } catch (error) {
-    return res.status(400).json({
-      success: false,
-      error: error.message
-    });
+    console.error("Scrape Error:", error);
+    return res.status(500).json({ error: error.message });
   }
 }

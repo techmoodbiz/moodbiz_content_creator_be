@@ -1,3 +1,4 @@
+
 import * as cheerio from "cheerio";
 import fetch from "node-fetch";
 
@@ -76,7 +77,8 @@ CONTENT SAMPLE:
 ${extractedData.mainText.substring(0, 80000)} 
         `;
 
-        const { GoogleGenAI } = await import("@google/genai/node");
+        // FIX IMPORT
+        const { GoogleGenAI } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
         const prompt = `

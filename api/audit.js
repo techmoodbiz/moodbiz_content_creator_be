@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     // Add explicit instruction to forbid markdown even if schema is used
     finalPrompt += "\n\nIMPORTANT: Output RAW JSON only. Do not wrap in markdown code blocks (```json).";
 
-    const { GoogleGenAI } = await import("@google/genai/node");
+    const { GoogleGenAI } = await import("@google/genai");
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
     // DEFINING STRICT SCHEMA
