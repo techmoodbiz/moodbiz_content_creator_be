@@ -27,11 +27,13 @@ export default async function handler(req, res) {
        finalPrompt = `Please audit the following text based on general marketing standards:\n"${text}"\nOutput JSON format.`;
     }
 
+    // Add explicit instruction to forbid markdown even if schema is used
+    finalPrompt += "\n\nIMPORTANT: Output RAW JSON only. Do not wrap in markdown code blocks (```json).";
+
     const { GoogleGenAI } = await import("@google/genai/node");
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
     // DEFINING STRICT SCHEMA
-    // Note: SDK Types like Type.STRING are cleaner, but standard JSON Schema objects work too.
     const auditSchema = {
       type: "OBJECT",
       properties: {
@@ -66,7 +68,10 @@ export default async function handler(req, res) {
         }
     });
 
-    const resultText = response.text || "{}";
+    let resultText = response.text || "{}";
+
+    // Clean up markdown if AI ignored instructions
+    resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
 
     return res.status(200).json({
       success: true,
