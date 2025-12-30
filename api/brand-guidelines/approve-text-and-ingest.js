@@ -1,5 +1,4 @@
 import admin from 'firebase-admin';
-import { GoogleGenAI } from "@google/genai/node";
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -67,6 +66,7 @@ export default async function handler(req, res) {
         if (originalText.length > 300) {
             console.log("Cleaning text with Gemini 3.0...");
             try {
+                const { GoogleGenAI } = await import("@google/genai/node");
                 const ai = new GoogleGenAI({ apiKey: apiKey });
                 const cleanResponse = await ai.models.generateContent({
                     model: 'gemini-3-flash-preview',

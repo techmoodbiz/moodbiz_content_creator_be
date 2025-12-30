@@ -1,6 +1,5 @@
 import busboy from 'busboy';
 import mammoth from 'mammoth';
-import { GoogleGenAI } from "@google/genai/node";
 
 export default async function handler(req, res) {
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -29,6 +28,7 @@ export default async function handler(req, res) {
             const apiKey = process.env.GEMINI_API_KEY;
             const mime = fileInfo.mimeType;
             const filename = (fileInfo.filename || '').toLowerCase();
+            const { GoogleGenAI } = await import("@google/genai/node");
             const ai = new GoogleGenAI({ apiKey: apiKey });
 
             let textContent = '';

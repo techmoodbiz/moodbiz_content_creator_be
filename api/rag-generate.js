@@ -1,7 +1,6 @@
 
 import fetch from "node-fetch";
 import admin from "firebase-admin";
-import { GoogleGenAI } from "@google/genai/node";
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -89,6 +88,7 @@ export default async function handler(req, res) {
     try {
         const { brand, topic, platform, userText, systemPrompt } = req.body;
         const apiKey = process.env.GEMINI_API_KEY;
+        const { GoogleGenAI } = await import("@google/genai/node");
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
         let queryEmbedding = null;

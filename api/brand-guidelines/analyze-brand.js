@@ -1,6 +1,5 @@
 import * as cheerio from "cheerio";
 import fetch from "node-fetch";
-import { GoogleGenAI } from "@google/genai/node";
 
 export default async function handler(req, res) {
     // CORS Header Setting
@@ -77,6 +76,7 @@ CONTENT SAMPLE:
 ${extractedData.mainText.substring(0, 80000)} 
         `;
 
+        const { GoogleGenAI } = await import("@google/genai/node");
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
         const prompt = `

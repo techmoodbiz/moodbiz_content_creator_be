@@ -1,6 +1,4 @@
 
-import { GoogleGenAI } from "@google/genai/node";
-
 export default async function handler(req, res) {
   // CORS Configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -29,6 +27,7 @@ export default async function handler(req, res) {
        finalPrompt = `Please audit the following text based on general marketing standards:\n"${text}"\nOutput JSON format.`;
     }
 
+    const { GoogleGenAI } = await import("@google/genai/node");
     const ai = new GoogleGenAI({ apiKey: apiKey });
 
     // DEFINING STRICT SCHEMA

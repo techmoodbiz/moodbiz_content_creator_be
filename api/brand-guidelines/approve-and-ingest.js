@@ -2,7 +2,6 @@
 import admin from 'firebase-admin';
 import fetch from 'node-fetch';
 import mammoth from 'mammoth';
-import { GoogleGenAI } from "@google/genai/node";
 
 if (!admin.apps.length) {
     admin.initializeApp({
@@ -89,6 +88,7 @@ export default async function handler(req, res) {
         const fileName = (guideline.file_name || '').toLowerCase();
 
         // --- VISUAL OCR USING GEMINI 3.0 FLASH ---
+        const { GoogleGenAI } = await import("@google/genai/node");
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
         if (fileName.endsWith('.pdf')) {

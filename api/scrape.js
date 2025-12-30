@@ -1,7 +1,6 @@
 import fetch from 'node-fetch';
 import * as cheerio from 'cheerio';
 import https from 'https';
-import { GoogleGenAI } from "@google/genai/node";
 
 const httpsAgent = new https.Agent({
   rejectUnauthorized: false,
@@ -73,6 +72,7 @@ export default async function handler(req, res) {
     const apiKey = process.env.GEMINI_API_KEY;
     if (apiKey && rawText.length > 200) {
         try {
+            const { GoogleGenAI } = await import("@google/genai/node");
             const ai = new GoogleGenAI({ apiKey: apiKey });
             
             const prompt = `
