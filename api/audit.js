@@ -42,7 +42,7 @@ export default async function handler(req, res) {
               category: { 
                 type: "STRING", 
                 enum: ["language", "ai_logic", "brand", "product"], 
-                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words.\n- 'product': Wrong Specs/Price/Features." 
+                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words, Generic AI tone.\n- 'product': Wrong Specs/Price/Features." 
               },
               problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
               citation: { type: "STRING", description: "Quy tắc bị vi phạm (VD: SOP Rule, Brand Voice)" },
