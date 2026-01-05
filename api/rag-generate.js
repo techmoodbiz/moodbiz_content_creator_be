@@ -34,7 +34,10 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
       .where("status", "==", "approved")
       .get();
 
-    if (guidelinesSnap.empty) return { text: "", sources: [] };
+    if (guidelinesSnap.empty) {
+        console.log("No approved guidelines found for brand:", brandId);
+        return { text: "", sources: [] };
+    }
 
     let allChunks = [];
     for (const guideDoc of guidelinesSnap.docs) {
@@ -55,6 +58,7 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
     if (allChunks.length === 0) return { text: "", sources: [] };
 
     if (queryEmbedding) {
+      console.log("Running cosine similarity on", allChunks.length, "chunks");
       const ranked = allChunks.map(chunk => {
         const similarity = cosineSimilarity(queryEmbedding, chunk.embedding);
         const finalScore = similarity + (chunk.isPrimary ? 0.15 : 0);
@@ -72,12 +76,13 @@ async function getConsolidatedContext(brandId, queryEmbedding = null, topK = 12)
 
     return { text: allChunks.slice(0, 10).map(c => c.text).join("\n\n"), sources: [] };
   } catch (err) {
-    console.error("Context error", err);
+    console.error("Context retrieval error:", err);
     return { text: "", sources: [] };
   }
 }
 
 export default async function handler(req, res) {
+    // Config CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
@@ -85,22 +90,31 @@ export default async function handler(req, res) {
     if (req.method === "OPTIONS") return res.status(200).end();
     if (req.method !== "POST") return res.status(405).json({ error: "Only POST allowed" });
 
+    console.log("--- RAG GENERATE REQUEST RECEIVED ---");
+    
     try {
         const { brand, topic, platform, language, userText, systemPrompt, context } = req.body;
+        console.log("Request Params:", { brandName: brand?.name, topic, platform, hasContext: !!context, hasSystemPrompt: !!systemPrompt });
+
         const apiKey = process.env.GEMINI_API_KEY;
-        const { GoogleGenAI } = await import("@google/genai/node");
+        if (!apiKey) throw new Error("Missing GEMINI_API_KEY");
+
+        // Standard dynamic import without /node to verify if path is the issue, usually standard package works
+        const { GoogleGenAI } = await import("@google/genai");
         const ai = new GoogleGenAI({ apiKey: apiKey });
 
         let ragContext = "";
         let sources = [];
 
-        // --- MODE 1: CONTEXT STUFFING (Client gửi sẵn context) ---
+        // --- MODE 1: CONTEXT STUFFING ---
         if (context) {
+            console.log("Using provided context (Client-side stuffing)");
             ragContext = context;
             sources = ["Client Provided Context"];
         } 
-        // --- MODE 2: SERVER-SIDE RAG (Tự tìm trong DB) ---
+        // --- MODE 2: SERVER-SIDE RAG ---
         else {
+            console.log("Starting Server-side RAG Retrieval...");
             let queryEmbedding = null;
             try {
                 const embedRes = await ai.models.embedContent({
@@ -109,19 +123,18 @@ export default async function handler(req, res) {
                 });
                 queryEmbedding = embedRes.embedding.values;
             } catch (e) {
-               console.warn("Embedding failed, falling back to non-semantic retrieval", e.message);
+               console.warn("Embedding failed, falling back to non-semantic retrieval:", e.message);
             }
 
             const retrieval = await getConsolidatedContext(brand.id, queryEmbedding);
             ragContext = retrieval.text;
             sources = retrieval.sources;
+            console.log("RAG Retrieved:", sources.length, "sources. Context Length:", ragContext.length);
         }
 
         // --- CONSTRUCT PROMPT ---
         let finalPrompt;
-
         if (systemPrompt) {
-            // Sử dụng System Prompt chuyên dụng từ Client (App Config)
             finalPrompt = `
 ${systemPrompt}
 
@@ -135,27 +148,19 @@ Language: ${language || "Vietnamese"}
 ${userText ? `User Note: ${userText}` : ""}
 `;
         } else {
-            // Fallback Prompt (Dùng cho test API trực tiếp)
-            finalPrompt = `
+             finalPrompt = `
 Bạn là chuyên gia Content của ${brand.name}.
 Dựa trên bộ Knowledge Base (đã được tổng hợp) dưới đây:
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${ragContext || "Không có dữ liệu guideline."}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-[HỒ SƠ CHIẾN LƯỢC]
-Tính cách: ${brand.personality}
-Giọng văn: ${brand.voice}
-USP: ${brand.usp?.join(", ")}
 
 [YÊU CẦU]
 Chủ đề: ${topic}
 Kênh: ${platform}
 Ngôn ngữ: ${language || "Vietnamese"}
-${userText ? `Ghi chú: ${userText}` : ""}
 `;
         }
+
+        console.log("Calling Gemini 3 Flash Preview...");
 
         // --- GENERATE CONTENT ---
         const response = await ai.models.generateContent({
@@ -167,6 +172,8 @@ ${userText ? `Ghi chú: ${userText}` : ""}
                 maxOutputTokens: 8192
             }
         });
+        
+        console.log("Gemini Response Received. Length:", response.text?.length);
 
         res.status(200).json({
             success: true,
@@ -175,7 +182,7 @@ ${userText ? `Ghi chú: ${userText}` : ""}
         });
 
     } catch (e) {
-        console.error("Generate Error", e);
+        console.error("CRITICAL GENERATE ERROR:", e);
         res.status(500).json({ success: false, error: e.message });
     }
 }
