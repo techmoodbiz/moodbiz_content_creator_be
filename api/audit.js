@@ -42,7 +42,7 @@ export default async function handler(req, res) {
               category: { 
                 type: "STRING", 
                 enum: ["language", "ai_logic", "brand", "product"], 
-                description: "Phân loại lỗi: 'product' = Sai lệch thông số/giá cả cụ thể. 'ai_logic' = Ảo giác, bịa đặt sự kiện, suy diễn vô căn cứ." 
+                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words.\n- 'product': Wrong Specs/Price/Features." 
               },
               problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
               citation: { type: "STRING", description: "Quy tắc bị vi phạm (VD: SOP Rule, Brand Voice)" },
@@ -64,7 +64,7 @@ export default async function handler(req, res) {
     }
 
     // SYSTEM REMINDER (SANDWICH)
-    finalPrompt += "\n\nIMPORTANT: Think deeply before answering. Separate 'Product Spec Errors' from 'General AI Hallucinations'. Output ONLY valid JSON.";
+    finalPrompt += "\n\nIMPORTANT: Think deeply before answering. Separate 'Product Spec Errors' from 'General AI Hallucinations'. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. Output ONLY valid JSON.";
 
     // Use gemini-3-flash-preview
     const response = await ai.models.generateContent({
