@@ -33,18 +33,22 @@ export default async function handler(req, res) {
     const auditSchema = {
       type: "OBJECT",
       properties: {
-        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng tiếng Việt" },
+        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng tiếng Việt (Ngắn gọn, súc tích)" },
         identified_issues: {
           type: "ARRAY",
           items: {
             type: "OBJECT",
             properties: {
-              category: { type: "STRING", enum: ["language", "ai_logic", "brand", "product"], description: "Loại lỗi" },
-              problematic_text: { type: "STRING", description: "Đoạn văn bản bị lỗi (Trích dẫn chính xác, max 150 ký tự)" },
-              citation: { type: "STRING", description: "Quy tắc bị vi phạm" },
-              reason: { type: "STRING", description: "Giải thích lý do" },
-              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ" },
-              suggestion: { type: "STRING", description: "Gợi ý sửa đổi" }
+              category: { 
+                type: "STRING", 
+                enum: ["language", "ai_logic", "brand", "product"], 
+                description: "Phân loại lỗi: 'product' = Sai lệch thông số/giá cả cụ thể. 'ai_logic' = Ảo giác, bịa đặt sự kiện, suy diễn vô căn cứ." 
+              },
+              problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
+              citation: { type: "STRING", description: "Quy tắc bị vi phạm (VD: SOP Rule, Brand Voice)" },
+              reason: { type: "STRING", description: "Giải thích chi tiết tại sao đây là lỗi" },
+              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ nghiêm trọng" },
+              suggestion: { type: "STRING", description: "Đề xuất sửa đổi cụ thể" }
             },
             required: ["category", "problematic_text", "reason", "severity", "suggestion"]
           }
@@ -56,20 +60,19 @@ export default async function handler(req, res) {
     // Construct prompt
     let finalPrompt = constructedPrompt;
     if (!finalPrompt) {
-       // Fallback simple prompt
-       finalPrompt = `Please audit the following text based on general marketing standards:\n"""\n${text}\n"""`;
+       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
-    // REINFORCE JSON INSTRUCTION AT THE VERY END (Sandwich Prompting)
-    // Điều này cực kỳ quan trọng với nội dung dài, giúp AI nhớ lại nhiệm vụ format cuối cùng
-    finalPrompt += "\n\nSYSTEM REMINDER: You MUST output a valid JSON object strictly matching the defined schema. No Markdown formatting. No introductory text.";
+    // SYSTEM REMINDER (SANDWICH)
+    finalPrompt += "\n\nIMPORTANT: Think deeply before answering. Separate 'Product Spec Errors' from 'General AI Hallucinations'. Output ONLY valid JSON.";
 
-    // Use gemini-3-flash-preview as requested
+    // Use gemini-3-flash-preview
     const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
         config: {
-            temperature: 0.1, // Low temperature for deterministic output
+            temperature: 0.2, // Tăng nhẹ để AI linh hoạt hơn trong việc phát hiện lỗi ngữ nghĩa (semantic errors)
+            topP: 0.9,        // Mở rộng vùng tìm kiếm token một chút
             maxOutputTokens: 8192,
             responseMimeType: "application/json",
             responseSchema: auditSchema
@@ -77,8 +80,6 @@ export default async function handler(req, res) {
     });
 
     let resultText = response.text || "{}";
-
-    // Standardize output
     resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
 
     return res.status(200).json({
