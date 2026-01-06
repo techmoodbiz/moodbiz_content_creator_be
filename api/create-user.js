@@ -54,7 +54,30 @@ export default async function handler(req, res) {
             return res.status(403).json({ error: "Permission denied" });
         }
 
-        const { name, email, password, role, ownedBrandIds, assignedBrandIds } = req.body;
+        let { name, email, password, role, ownedBrandIds, assignedBrandIds } = req.body;
+
+        // --- SECURITY CHECK FOR BRAND OWNER ---
+        if (currentUserData.role === 'brand_owner') {
+            // 1. Enforce Role Limit
+            if (role !== 'content_creator') {
+                return res.status(403).json({ error: "Brand Owners are strictly limited to creating Content Creator accounts." });
+            }
+
+            // 2. Enforce Brand Assignment Limit (CRITICAL FIX)
+            // Brand Owner chỉ được gán nhân viên vào các brand mà mình sở hữu (ownedBrandIds)
+            const ownerBrands = currentUserData.ownedBrandIds || [];
+            
+            // Lọc assignedBrandIds đầu vào: chỉ giữ lại những ID nằm trong ownerBrands
+            if (Array.isArray(assignedBrandIds)) {
+                assignedBrandIds = assignedBrandIds.filter(id => ownerBrands.includes(id));
+            } else {
+                assignedBrandIds = [];
+            }
+            
+            // Brand Owner không được set ownedBrandIds cho người khác (chỉ Admin mới làm được, hoặc logic tạo BO khác)
+            ownedBrandIds = []; 
+        }
+        // -------------------------------------
 
         if (!name || !email || !password) {
             return res.status(400).json({ error: "Missing required fields: name, email, password" });
