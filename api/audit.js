@@ -16,6 +16,24 @@ if (!admin.apps.length) {
   }
 }
 
+function cleanAndParseJSON(text) {
+  let clean = text.trim();
+  // Remove Markdown code blocks
+  if (clean.includes('```')) {
+    clean = clean.replace(/```json/gi, '').replace(/```/g, '');
+  }
+
+  // Attempt to find the outer JSON object
+  const firstBrace = clean.indexOf('{');
+  const lastBrace = clean.lastIndexOf('}');
+
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    clean = clean.substring(firstBrace, lastBrace + 1);
+  }
+
+  return JSON.parse(clean);
+}
+
 export default async function handler(req, res) {
   // CORS Configuration
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -59,33 +77,21 @@ export default async function handler(req, res) {
     const { GoogleGenerativeAI } = await import("@google/generative-ai");
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // DEFINING STRICT SCHEMA
-    const auditSchema = {
-      type: "OBJECT",
-      properties: {
-        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng TIẾNG VIỆT. Phải nghiêm khắc và chỉ ra ngay vấn đề lớn nhất." },
-        identified_issues: {
-          type: "ARRAY",
-          items: {
-            type: "OBJECT",
-            properties: {
-              category: {
-                type: "STRING",
-                enum: ["language", "ai_logic", "brand", "product"],
-                description: "CLASSIFICATION RULES:\n- 'language': Clunky Vietnamese, Wordiness, Passive Voice, Grammar, Spelling.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinations.\n- 'brand': Tone violation, Forbidden words.\n- 'product': Wrong Specs/Facts."
-              },
-              problematic_text: { type: "STRING", description: "Trích dẫn nguyên văn đoạn lỗi" },
-              citation: { type: "STRING", description: "Tên quy tắc vi phạm (Label). VD: 'Văn phong tự nhiên', 'Loại bỏ từ thừa'. KHÔNG dùng mã code." },
-              reason: { type: "STRING", description: "Giải thích lỗi thật chi tiết và khó tính (Bằng TIẾNG VIỆT)" },
-              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "High = Sai sự thật/Cấm. Medium = Lủng củng/Sáo rỗng. Low = Lỗi vặt." },
-              suggestion: { type: "STRING", description: "Viết lại câu này cho thật hay và tự nhiên (Tiếng Việt)" }
-            },
-            required: ["category", "problematic_text", "citation", "reason", "severity", "suggestion"]
-          }
+    // DEFINING STRICT SCHEMA TEXT FOR PROMPT
+    // We inject this into the prompt instead of strict generationConfig to avoid validation crashes
+    const auditSchemaText = JSON.stringify({
+      summary: "Tóm tắt kết quả audit bằng TIẾNG VIỆT. Phải nghiêm khắc và chỉ ra ngay vấn đề lớn nhất.",
+      identified_issues: [
+        {
+          category: "language | ai_logic | brand | product",
+          problematic_text: "Trích dẫn nguyên văn đoạn lỗi",
+          citation: "Tên quy tắc vi phạm (Label). VD: 'Văn phong tự nhiên'. KHÔNG dùng mã code.",
+          reason: "Giải thích lỗi thật chi tiết và khó tính (Bằng TIẾNG VIỆT)",
+          severity: "High | Medium | Low",
+          suggestion: "Viết lại câu này cho thật hay và tự nhiên (Tiếng Việt)"
         }
-      },
-      required: ["summary", "identified_issues"]
-    };
+      ]
+    }, null, 2);
 
     // Construct prompt
     let finalPrompt = constructedPrompt;
@@ -94,31 +100,36 @@ export default async function handler(req, res) {
     }
 
     // SYSTEM REMINDER (SANDWICH) - Reinforced for EXTREME STRICTNESS
-    finalPrompt += "\n\n*** SYSTEM OVERRIDE: PEDANTIC MODE ON ***\n1. Be an extremely strict editor. Find faults in flow, word choice, and logic.\n2. **Translationese Check:** If the Vietnamese sounds like translated English (e.g. structure 'Adj + Noun' where 'Noun + Adj' is better, or overuse of 'của'), FLAG IT as 'Language Naturalness'.\n3. **Cliché Check:** Flag words like 'tối ưu hóa', 'giải pháp hàng đầu' if they lack context.\n4. **Output:** MUST BE IN VIETNAMESE. \n5. **Citation:** Use DISPLAY NAMES (Labels), never codes.\n6. Return valid JSON.";
+    finalPrompt += `
+\n\n*** SYSTEM OVERRIDE: PEDANTIC MODE ON ***
+1. Be an extremely strict editor. Find faults in flow, word choice, and logic.
+2. **Translationese Check:** If the Vietnamese sounds like translated English, FLAG IT.
+3. **Cliché Check:** Flag words like 'tối ưu hóa', 'giải pháp hàng đầu' if they lack context.
+4. **Citation:** Use DISPLAY NAMES (Labels), never codes.
+5. **Output Format:** You MUST return valid JSON adhering to the schema below. Do not wrap in markdown code blocks.
 
-    // Use gemini-2.0-flash-exp with correct SDK syntax
+REQUIRED JSON SCHEMA:
+${auditSchemaText}
+`;
+
+    // Use gemini-2.0-flash-exp 
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        temperature: 0.1, // Very low temperature for consistent, strict checking
+        temperature: 0.1,
         topP: 0.9,
         maxOutputTokens: 8192,
-        responseMimeType: "application/json",
-        responseSchema: auditSchema
+        responseMimeType: "application/json" // Enforce JSON output but without strict schema validation object
       }
     });
 
     const response = await model.generateContent(finalPrompt);
-
     let resultText = response.response.text() || "{}";
-
-    // Robust cleaning on backend
-    resultText = resultText.replace(/```json/gi, "").replace(/```/g, "").trim();
 
     // Attempt to parse JSON
     let parsedResult;
     try {
-      parsedResult = JSON.parse(resultText);
+      parsedResult = cleanAndParseJSON(resultText);
     } catch (parseError) {
       console.error("Backend JSON Parse Error:", parseError);
       console.error("Raw Text:", resultText);
@@ -129,7 +140,7 @@ export default async function handler(req, res) {
           category: "ai_logic",
           problematic_text: "System Error",
           citation: "System",
-          reason: "AI trả về định dạng không hợp lệ. Vui lòng thử lại.",
+          reason: "AI trả về định dạng không hợp lệ. Vui lòng thử lại. Raw: " + resultText.substring(0, 50),
           severity: "Low",
           suggestion: "Thử lại Audit"
         }]
