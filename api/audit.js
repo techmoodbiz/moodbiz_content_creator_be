@@ -1,4 +1,3 @@
-
 import admin from 'firebase-admin';
 
 // Initialize Firebase Admin if needed
@@ -17,67 +16,52 @@ if (!admin.apps.length) {
 }
 
 /**
- * Robust JSON Parser that attempts to fix common LLM JSON errors
- * including markdown blocks, trailing commas, and truncation.
+ * Robust JSON Parser V2
+ * Uses substring extraction instead of just regex to handle "Here is the JSON" preambles.
  */
 function robustJSONParse(text) {
   if (!text) return null;
+  let clean = String(text);
 
-  let clean = String(text).trim();
+  // 1. Extract the main JSON object (Find first '{' and last '}')
+  const firstBrace = clean.indexOf('{');
+  const lastBrace = clean.lastIndexOf('}');
 
-  // 1. Strip Markdown
-  clean = clean.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  if (firstBrace !== -1 && lastBrace !== -1) {
+    clean = clean.substring(firstBrace, lastBrace + 1);
+  } else {
+    // If no braces found, it's not a JSON object
+    return null;
+  }
 
-  // 2. Remove comments
-  clean = clean.replace(/\/\/.*$/gm, '');
-
-  // 3. Attempt direct parse
+  // 2. Try direct parse after extraction
   try {
     return JSON.parse(clean);
   } catch (e) {
-    // Continue to repair strategies
+    // Continue to repair
   }
 
-  // 4. Fix trailing commas (common error)
-  clean = clean.replace(/,(\s*[}\]])/g, '$1');
+  // 3. Remove comments (// ...) and trailing commas
+  clean = clean
+    .replace(/\/\/.*$/gm, '') // Remove JS comments
+    .replace(/,(\s*[}\]])/g, '$1') // Remove trailing commas
+    .replace(/([{,]\s*)([a-zA-Z0-9_]+?)\s*:/g, '$1"$2":'); // Fix unquoted keys
+
   try {
     return JSON.parse(clean);
   } catch (e) { }
 
-  // 5. Fix missing commas between objects (e.g. }{ )
-  clean = clean.replace(/}\s*{/g, '},{');
+  // 4. Handle Truncated JSON (Attempt to close open structures)
   try {
+    const openBraces = (clean.match(/{/g) || []).length;
+    const closeBraces = (clean.match(/}/g) || []).length;
+    const openBrackets = (clean.match(/\[/g) || []).length;
+    const closeBrackets = (clean.match(/\]/g) || []).length;
+
+    if (openBrackets > closeBrackets) clean += ']'.repeat(openBrackets - closeBrackets);
+    if (openBraces > closeBraces) clean += '}'.repeat(openBraces - closeBraces);
+
     return JSON.parse(clean);
-  } catch (e) { }
-
-  // 6. Handle Truncated JSON (The "Audit sai/lỗi format" often comes from max token truncation)
-  // We assume the structure is { summary: "...", identified_issues: [ ... ] }
-  // We try to find the last valid object closing '}' inside the array and close the structure.
-  try {
-    const issuesStart = clean.indexOf('"identified_issues"');
-    if (issuesStart !== -1) {
-      const arrayStart = clean.indexOf('[', issuesStart);
-      if (arrayStart !== -1) {
-        // Find the last '}' that likely closes an issue object
-        const lastObjectClose = clean.lastIndexOf('}');
-        if (lastObjectClose > arrayStart) {
-          // Construct a valid sub-string
-          // This is a heuristic: take everything up to the last '}', add ']}'
-          let recovered = clean.substring(0, lastObjectClose + 1);
-
-          // Count braces to see if we need to close the array and root object
-          const openBraces = (recovered.match(/{/g) || []).length;
-          const closeBraces = (recovered.match(/}/g) || []).length;
-          const openBrackets = (recovered.match(/\[/g) || []).length;
-          const closeBrackets = (recovered.match(/\]/g) || []).length;
-
-          if (openBrackets > closeBrackets) recovered += ']';
-          if (openBraces > closeBraces) recovered += '}';
-
-          return JSON.parse(recovered);
-        }
-      }
-    }
   } catch (e) {
     console.warn("JSON Repair Failed:", e.message);
   }
@@ -137,7 +121,7 @@ export default async function handler(req, res) {
     const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // --- STRICT SCHEMA CONFIGURATION ---
+    // --- SCHEMA DEFINITION (Relaxed for stability) ---
     const auditResponseSchema = {
       type: SchemaType.OBJECT,
       properties: {
@@ -147,17 +131,14 @@ export default async function handler(req, res) {
           items: {
             type: SchemaType.OBJECT,
             properties: {
-              category: {
-                type: SchemaType.STRING,
-                enum: ["language", "ai_logic", "brand", "product"]
-              },
+              category: { type: SchemaType.STRING }, // Removed strict enum to prevent validation errors
               problematic_text: { type: SchemaType.STRING },
               citation: { type: SchemaType.STRING },
               reason: { type: SchemaType.STRING },
-              severity: { type: SchemaType.STRING, enum: ["High", "Medium", "Low"] },
+              severity: { type: SchemaType.STRING },
               suggestion: { type: SchemaType.STRING }
             },
-            required: ["category", "problematic_text", "reason", "suggestion", "severity"]
+            required: ["category", "problematic_text", "reason", "suggestion"]
           }
         }
       },
@@ -170,24 +151,22 @@ export default async function handler(req, res) {
     }
 
     // --- PROMPT OPTIMIZATION ---
-    // Explicitly enforce the 4 blocks and concise output to avoid truncation
     finalPrompt += `
-\n*** SYSTEM INSTRUCTIONS ***
+\n*** IMPORTANT SYSTEM INSTRUCTIONS ***
 1. Analyze the text strictly according to the 4 BLOCKS provided.
-2. IF A BLOCK IS MARKED "BYPASSED", DO NOT GENERATE ISSUES FOR THAT CATEGORY.
-3. Output PURE JSON matching the provided schema.
-4. "category" MUST be one of: "language", "ai_logic", "brand", "product".
-5. BE EXTREMELY CRITICAL. Do not overlook minor issues. Scrutinize every sentence.
-6. Keep "reason" and "suggestion" concise (Vietnamese).
-7. Prioritize HIGH severity issues first.
-8. Limit the output to the top 20 most critical issues to ensure the JSON is complete and valid.
+2. Return ONLY valid JSON. **DO NOT** use Markdown formatting (no \`\`\`json).
+3. **DO NOT** include any introductory text or explanations outside the JSON object.
+4. "category" MUST be exactly one of: "language", "ai_logic", "brand", "product".
+5. Provide a "citation" for every issue (e.g., "SOP: Grammar", "Brand: Tone").
+6. Keep "reason" and "suggestion" concise and in Vietnamese.
+7. Limit to top 15 most critical issues to avoid token limits.
 `;
 
     // Initialize Model
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp', // Using experimental model for better schema adherence
+      model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        temperature: 0.0, // Deterministic for structured data
+        temperature: 0.1, // Slight temp for creativity but low enough for structure
         topP: 0.95,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
@@ -212,7 +191,7 @@ export default async function handler(req, res) {
             severity: "Low",
             problematic_text: "System Error",
             citation: "System",
-            reason: "Invalid JSON Output",
+            reason: "Invalid JSON Output from AI",
             suggestion: "Try simplifying the input text."
           }
         ]
@@ -227,18 +206,19 @@ export default async function handler(req, res) {
   } catch (error) {
     console.error('Audit API Error:', error);
 
-    // Check for specific Gemini errors
     let errorMessage = error.message || 'Unknown Error';
     if (errorMessage.includes('404')) {
-      errorMessage = 'Model AI không phản hồi (404). Vui lòng liên hệ Admin kiểm tra cấu hình Model ID.';
+      errorMessage = 'Model AI không phản hồi (404). Check Model ID.';
     } else if (errorMessage.includes('429')) {
-      errorMessage = 'Hệ thống đang quá tải (Rate Limit). Vui lòng thử lại sau 30s.';
+      errorMessage = 'Hệ thống quá tải (Rate Limit). Thử lại sau 30s.';
+    } else if (errorMessage.includes('SAFETY')) {
+      errorMessage = 'Nội dung bị chặn bởi bộ lọc an toàn của Google.';
     }
 
     return res.status(200).json({
-      success: true, // Return 200 to frontend but with error result structure
+      success: true,
       result: {
-        summary: 'Đã xảy ra lỗi trong quá trình xử lý.',
+        summary: 'Đã xảy ra lỗi hệ thống.',
         identified_issues: [
           {
             category: 'ai_logic',
