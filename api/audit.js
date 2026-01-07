@@ -141,9 +141,9 @@ REQUIRED JSON STRUCTURE:
 ${auditSchemaText}
 `;
 
-    // Dùng gemini-1.5-flash với JSON mode ổn định hơn
+    // Sử dụng gemini-2.0-flash-exp (Model 1.5-flash bị lỗi 404 trên v1beta)
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash-exp',
       generationConfig: {
         temperature: 0.2,
         topP: 0.95,
