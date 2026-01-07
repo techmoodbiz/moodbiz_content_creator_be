@@ -111,11 +111,35 @@ export default async function handler(req, res) {
     const response = await model.generateContent(finalPrompt);
 
     let resultText = response.response.text() || "{}";
-    resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
+
+    // Robust cleaning on backend
+    resultText = resultText.replace(/```json/gi, "").replace(/```/g, "").trim();
+
+    // Attempt to parse JSON on server side to catch errors early
+    let parsedResult;
+    try {
+      parsedResult = JSON.parse(resultText);
+    } catch (parseError) {
+      console.error("Backend JSON Parse Error:", parseError);
+      console.error("Raw Text:", resultText);
+
+      // Fallback: Return a valid error object structure if parsing fails
+      parsedResult = {
+        summary: "Error parsing AI response on server.",
+        identified_issues: [{
+          category: "ai_logic",
+          problematic_text: "System Error",
+          citation: "JSON Parse Failure",
+          reason: "The AI returned an invalid format. Please try again.",
+          severity: "Low",
+          suggestion: "Retry Audit"
+        }]
+      };
+    }
 
     return res.status(200).json({
       success: true,
-      result: resultText
+      result: parsedResult // Return OBJECT, not string
     });
 
   } catch (error) {
