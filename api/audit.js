@@ -16,7 +16,7 @@ if (!admin.apps.length) {
 }
 
 /**
- * Hàm parse JSON an toàn
+ * Hàm parse JSON an toàn (Đã nâng cấp)
  */
 function robustJSONParse(text) {
   if (!text) return null;
@@ -26,9 +26,9 @@ function robustJSONParse(text) {
   clean = clean.trim();
 
   // 2. Loại bỏ Markdown code blocks
-  clean = clean.replace(/```json/gi, '').replace(/```/g, '');
+  clean = clean.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
 
-  // 3. Tìm cặp ngoặc nhọn {} ngoài cùng (để loại bỏ lời dẫn nếu có)
+  // 3. Tìm cặp ngoặc nhọn {} ngoài cùng
   const firstBrace = clean.indexOf('{');
   const lastBrace = clean.lastIndexOf('}');
 
@@ -36,17 +36,20 @@ function robustJSONParse(text) {
     clean = clean.substring(firstBrace, lastBrace + 1);
   }
 
-  // 4. Thử Parse JSON chuẩn
+  // 4. Loại bỏ comments (// ...) đôi khi AI thêm vào
+  clean = clean.replace(/\/\/.*$/gm, '');
+
+  // 5. Thử Parse JSON chuẩn
   try {
     return JSON.parse(clean);
   } catch (e) {
-    // 5. Nếu lỗi, thử fix các lỗi phổ biến của AI
+    // 6. Nếu lỗi, dùng Regex mạnh để xóa dấu phẩy thừa trước dấu đóng }, ]
     try {
-      const fixed = clean
-        .replace(/,\s*}/g, '}') // { "a": 1, } -> { "a": 1 }
-        .replace(/,\s*]/g, ']'); // [1, 2, ] -> [1, 2]
+      // Regex: tìm dấu phẩy theo sau bởi khoảng trắng và dấu đóng
+      const fixed = clean.replace(/,(\s*[}\]])/g, '$1');
       return JSON.parse(fixed);
     } catch (e2) {
+      console.error("JSON Parse Error Detail:", e2.message, "Raw Text:", text);
       return null; // Parse thất bại hoàn toàn
     }
   }
@@ -101,54 +104,58 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Missing text content to audit' });
     }
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // Schema Text Only (Soft Schema - inject vào prompt)
-    const auditSchemaText = JSON.stringify(
-      {
-        summary: 'Tóm tắt kết quả audit bằng TIẾNG VIỆT (Bắt buộc).',
-        identified_issues: [
-          {
-            category: 'language | ai_logic | brand | product',
-            problematic_text: 'Trích dẫn nguyên văn đoạn lỗi',
-            citation: 'Tên quy tắc vi phạm (Label).',
-            reason: 'Giải thích chi tiết (Tiếng Việt)',
-            severity: 'High | Medium | Low',
-            suggestion: 'Đề xuất sửa đổi (Tiếng Việt)',
-          },
-        ],
+    // --- CẤU HÌNH STRICT SCHEMA ---
+    // Ép buộc Gemini trả về đúng cấu trúc này, không được sai lệch.
+    const auditResponseSchema = {
+      type: "OBJECT", // SchemaType.OBJECT
+      properties: {
+        summary: { type: "STRING" },
+        identified_issues: {
+          type: "ARRAY",
+          items: {
+            type: "OBJECT",
+            properties: {
+              category: { type: "STRING", enum: ["language", "ai_logic", "brand", "product"] },
+              problematic_text: { type: "STRING" },
+              citation: { type: "STRING" },
+              reason: { type: "STRING" },
+              severity: { type: "STRING", enum: ["High", "Medium", "Low"] },
+              suggestion: { type: "STRING" }
+            },
+            required: ["category", "problematic_text", "reason", "suggestion", "severity"]
+          }
+        }
       },
-      null,
-      2
-    );
+      required: ["summary", "identified_issues"]
+    };
 
     let finalPrompt = constructedPrompt;
     if (!finalPrompt) {
       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
-    // Tối ưu Prompt để ép JSON
+    // Tối ưu Prompt
     finalPrompt += `
-*** FORMAT REQUIREMENT: PURE JSON ONLY ***
-1. You must output ONLY a valid JSON object.
-2. NO Markdown code blocks (do not use \`\`\`json).
-3. NO introductory text or explanations outside the JSON.
-4. NO trailing commas.
-5. If you cannot identify issues, return an empty array for "identified_issues".
-
-REQUIRED JSON STRUCTURE:
-${auditSchemaText}
+*** CRITICAL INSTRUCTION ***
+You must output PURE JSON matching the provided schema.
+Do NOT include markdown formatting like \`\`\`json.
+Do NOT include any introductory text.
+Ensure "summary" is in Vietnamese.
+Ensure "reason" and "suggestion" are in Vietnamese.
 `;
 
-    // Sử dụng gemini-2.0-flash-exp (Model 1.5-flash bị lỗi 404 trên v1beta)
+    // Sử dụng gemini-2.0-flash-exp
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        temperature: 0.2,
+        temperature: 0.1, // Cực thấp để đảm bảo logic và format
         topP: 0.95,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
+        responseSchema: auditResponseSchema // KEY FIX: Ép kiểu Schema
       },
     });
 
@@ -157,11 +164,9 @@ ${auditSchemaText}
     // Lấy text JSON trả về
     let resultText = '';
     try {
-      // response.response.text() is a function call
       if (response && response.response && typeof response.response.text === 'function') {
         resultText = response.response.text();
       } else {
-        // Fallback for unexpected SDK structure
         console.warn('Unexpected Gemini response structure:', response);
         resultText = JSON.stringify(response);
       }
@@ -175,34 +180,31 @@ ${auditSchemaText}
 
     // --- FAIL-SAFE FALLBACK ---
     if (!parsedResult) {
-      console.warn('JSON Parse Failed. Fallback to raw text.');
+      console.warn('JSON Parse Failed even with Schema. Fallback active.');
+      // Log raw text để debug nếu vẫn lỗi
+      console.log('Raw Failed JSON:', resultText);
 
       parsedResult = {
-        summary: 'Cảnh báo: AI trả về định dạng không chuẩn xác, nhưng đây là nội dung phân tích:',
+        summary: 'Cảnh báo: Hệ thống gặp lỗi khi đọc dữ liệu từ AI. Dưới đây là nội dung thô:',
         identified_issues: [
           {
             category: 'ai_logic',
             severity: 'Low',
             problematic_text: 'System Format Warning',
             citation: 'System',
-            reason:
-              'Hệ thống không thể định dạng tự động kết quả này thành bảng. Vui lòng xem nội dung thô bên dưới.',
-            suggestion: 'Thử lại hoặc đọc phần mô tả chi tiết.',
+            reason: 'Không thể phân tích định dạng JSON.',
+            suggestion: 'Vui lòng thử lại.',
           },
           {
             category: 'ai_logic',
             severity: 'Medium',
-            problematic_text: 'Raw AI Response',
-            citation: 'Debug Info',
-            reason: (resultText || '').substring(0, 800) + '...',
-            suggestion: 'Thông tin này dành cho kỹ thuật viên.',
+            problematic_text: 'Raw Output',
+            citation: 'Debug',
+            reason: (resultText || '').substring(0, 1000), // Show raw text
+            suggestion: 'Contact Admin',
           },
         ],
       };
-
-      if (resultText && !resultText.trim().startsWith('{')) {
-        parsedResult.summary = resultText.substring(0, 500) + '...';
-      }
     }
 
     return res.status(200).json({
