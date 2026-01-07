@@ -173,13 +173,6 @@ export default async function handler(req, res) {
     // Explicitly enforce the 4 blocks and concise output to avoid truncation
     finalPrompt += `
 \n*** SYSTEM INSTRUCTIONS ***
-1. Analyze the text strictly according to the 4 BLOCKS provided (Language, AI Logic, Brand, Product).
-2. Output PURE JSON matching the provided schema.
-3. "category" MUST be one of: "language", "ai_logic", "brand", "product".
-4. BE EXTREMELY CRITICAL. Do not overlook minor issues. Scrutinize every sentence.
-5. Keep "reason" and "suggestion" concise (Vietnamese).
-6. Prioritize HIGH severity issues first.
-7. Limit the output to the top 20 most critical issues to ensure the JSON is complete and valid.
 1. Analyze the text strictly according to the 4 BLOCKS provided.
 2. IF A BLOCK IS MARKED "BYPASSED", DO NOT GENERATE ISSUES FOR THAT CATEGORY.
 3. Output PURE JSON matching the provided schema.
