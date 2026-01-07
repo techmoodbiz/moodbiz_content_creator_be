@@ -93,8 +93,8 @@ export default async function handler(req, res) {
       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
-    // SYSTEM REMINDER (SANDWICH)
-    finalPrompt += "\n\nIMPORTANT: \n1. Think deeply before answering. \n2. Separate 'Product Spec Errors' from 'General AI Hallucinations'. \n3. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. \n4. **OUTPUT MUST BE IN VIETNAMESE** (Summary, Reason, Suggestion). \n5. **CITATION** MUST use the Display Name/Label (e.g., 'Dấu câu chuẩn'), NOT the Code. \n6. Output ONLY valid JSON.";
+    // SYSTEM REMINDER (SANDWICH) - Reinforced
+    finalPrompt += "\n\nIMPORTANT: \n1. Think deeply before answering. \n2. Separate 'Product Spec Errors' from 'General AI Hallucinations'. \n3. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. \n4. **OUTPUT MUST BE IN VIETNAMESE** (Summary, Reason, Suggestion) - This is a hard requirement. \n5. **CITATION** MUST use the Display Name/Label (e.g., 'Dấu câu chuẩn'), NOT the Code (like LANG_001). \n6. Output ONLY valid JSON.";
 
     // Use gemini-2.0-flash-exp with correct SDK syntax
     const model = genAI.getGenerativeModel({
@@ -125,14 +125,14 @@ export default async function handler(req, res) {
 
       // Fallback: Return a valid error object structure if parsing fails
       parsedResult = {
-        summary: "Error parsing AI response on server.",
+        summary: "Lỗi hệ thống khi xử lý kết quả AI (JSON Error).",
         identified_issues: [{
           category: "ai_logic",
           problematic_text: "System Error",
-          citation: "JSON Parse Failure",
-          reason: "The AI returned an invalid format. Please try again.",
+          citation: "System",
+          reason: "AI trả về định dạng không hợp lệ. Vui lòng thử lại.",
           severity: "Low",
-          suggestion: "Retry Audit"
+          suggestion: "Thử lại Audit"
         }]
       };
     }
