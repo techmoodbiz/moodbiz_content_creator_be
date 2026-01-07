@@ -1,4 +1,4 @@
-@ -1, 204 + 1, 205 @@
+
 import admin from 'firebase-admin';
 
 // Initialize Firebase Admin if needed
@@ -173,6 +173,13 @@ export default async function handler(req, res) {
     // Explicitly enforce the 4 blocks and concise output to avoid truncation
     finalPrompt += `
 \n*** SYSTEM INSTRUCTIONS ***
+1. Analyze the text strictly according to the 4 BLOCKS provided (Language, AI Logic, Brand, Product).
+2. Output PURE JSON matching the provided schema.
+3. "category" MUST be one of: "language", "ai_logic", "brand", "product".
+4. BE EXTREMELY CRITICAL. Do not overlook minor issues. Scrutinize every sentence.
+5. Keep "reason" and "suggestion" concise (Vietnamese).
+6. Prioritize HIGH severity issues first.
+7. Limit the output to the top 20 most critical issues to ensure the JSON is complete and valid.
 1. Analyze the text strictly according to the 4 BLOCKS provided.
 2. IF A BLOCK IS MARKED "BYPASSED", DO NOT GENERATE ISSUES FOR THAT CATEGORY.
 3. Output PURE JSON matching the provided schema.
@@ -204,3 +211,52 @@ export default async function handler(req, res) {
     // Fallback if parsing completely fails
     if (!parsedResult) {
       console.warn("Audit JSON Parse Failed. Raw:", responseText.substring(0, 200));
+      parsedResult = {
+        summary: "Hệ thống không thể phân tích định dạng phản hồi từ AI. Dưới đây là dữ liệu thô.",
+        identified_issues: [
+          {
+            category: "ai_logic",
+            severity: "Low",
+            problematic_text: "System Error",
+            citation: "System",
+            reason: "Invalid JSON Output",
+            suggestion: "Try simplifying the input text."
+          }
+        ]
+      };
+    }
+
+    return res.status(200).json({
+      success: true,
+      result: parsedResult,
+    });
+
+  } catch (error) {
+    console.error('Audit API Error:', error);
+
+    // Check for specific Gemini errors
+    let errorMessage = error.message || 'Unknown Error';
+    if (errorMessage.includes('404')) {
+      errorMessage = 'Model AI không phản hồi (404). Vui lòng liên hệ Admin kiểm tra cấu hình Model ID.';
+    } else if (errorMessage.includes('429')) {
+      errorMessage = 'Hệ thống đang quá tải (Rate Limit). Vui lòng thử lại sau 30s.';
+    }
+
+    return res.status(200).json({
+      success: true, // Return 200 to frontend but with error result structure
+      result: {
+        summary: 'Đã xảy ra lỗi trong quá trình xử lý.',
+        identified_issues: [
+          {
+            category: 'ai_logic',
+            severity: 'High',
+            problematic_text: 'API Error',
+            citation: 'System',
+            reason: errorMessage,
+            suggestion: 'Vui lòng thử lại sau giây lát.',
+          },
+        ],
+      },
+    });
+  }
+}
