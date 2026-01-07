@@ -53,11 +53,11 @@ export default async function handler(req, res) {
 
     // Input Validation
     if (!constructedPrompt && !text) {
-        return res.status(400).json({ error: "Missing text content to audit" });
+      return res.status(400).json({ error: "Missing text content to audit" });
     }
 
-    const { GoogleGenAI } = await import("@google/genai");
-    const ai = new GoogleGenAI({ apiKey: apiKey });
+    const { GoogleGenerativeAI } = await import("@google/generative-ai");
+    const genAI = new GoogleGenerativeAI(apiKey);
 
     // DEFINING STRICT SCHEMA
     const auditSchema = {
@@ -69,10 +69,10 @@ export default async function handler(req, res) {
           items: {
             type: "OBJECT",
             properties: {
-              category: { 
-                type: "STRING", 
-                enum: ["language", "ai_logic", "brand", "product"], 
-                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words, Generic AI tone.\n- 'product': Wrong Specs/Price/Features." 
+              category: {
+                type: "STRING",
+                enum: ["language", "ai_logic", "brand", "product"],
+                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words, Generic AI tone.\n- 'product': Wrong Specs/Price/Features."
               },
               problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
               citation: { type: "STRING", description: "Quy tắc bị vi phạm (VD: SOP Rule, Brand Voice)" },
@@ -90,26 +90,27 @@ export default async function handler(req, res) {
     // Construct prompt
     let finalPrompt = constructedPrompt;
     if (!finalPrompt) {
-       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
+      finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
     // SYSTEM REMINDER (SANDWICH)
     finalPrompt += "\n\nIMPORTANT: Think deeply before answering. Separate 'Product Spec Errors' from 'General AI Hallucinations'. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. Output ONLY valid JSON.";
 
-    // Use gemini-3-flash-preview
-    const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: [{ role: 'user', parts: [{ text: finalPrompt }] }],
-        config: {
-            temperature: 0.2, // Tăng nhẹ để AI linh hoạt hơn trong việc phát hiện lỗi ngữ nghĩa (semantic errors)
-            topP: 0.9,        // Mở rộng vùng tìm kiếm token một chút
-            maxOutputTokens: 8192,
-            responseMimeType: "application/json",
-            responseSchema: auditSchema
-        }
+    // Use gemini-2.0-flash-exp with correct SDK syntax
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.0-flash-exp',
+      generationConfig: {
+        temperature: 0.2,
+        topP: 0.9,
+        maxOutputTokens: 8192,
+        responseMimeType: "application/json",
+        responseSchema: auditSchema
+      }
     });
 
-    let resultText = response.text || "{}";
+    const response = await model.generateContent(finalPrompt);
+
+    let resultText = response.response.text() || "{}";
     resultText = resultText.replace(/```json/g, "").replace(/```/g, "").trim();
 
     return res.status(200).json({

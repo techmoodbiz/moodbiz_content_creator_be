@@ -5,17 +5,17 @@ import admin from 'firebase-admin';
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
-  } catch (error) {
-    console.error('Firebase admin init error', error);
-  }
+    try {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            }),
+        });
+    } catch (error) {
+        console.error('Firebase admin init error', error);
+    }
 }
 
 export default async function handler(req, res) {
@@ -29,13 +29,13 @@ export default async function handler(req, res) {
     // --- AUTH VERIFICATION ---
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
     const token = authHeader.split('Bearer ')[1];
     try {
-      await admin.auth().verifyIdToken(token);
+        await admin.auth().verifyIdToken(token);
     } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
+        return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
     }
     // -------------------------
 
@@ -58,8 +58,8 @@ export default async function handler(req, res) {
             const apiKey = process.env.GEMINI_API_KEY;
             const mime = fileInfo.mimeType;
             const filename = (fileInfo.filename || '').toLowerCase();
-            const { GoogleGenAI } = await import("@google/genai/node");
-            const ai = new GoogleGenAI({ apiKey: apiKey });
+            const { GoogleGenerativeAI } = await import("@google/generative-ai");
+            const genAI = new GoogleGenerativeAI(apiKey);
 
             let textContent = '';
             let prompt = `
@@ -77,16 +77,16 @@ INSTRUCTIONS:
                 const result = await mammoth.extractRawText({ buffer: fileBuffer });
                 textContent = result.value;
                 prompt += `\n\nDOCUMENT CONTENT:\n${textContent.substring(0, 50000)}`;
-                
-                const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: [{ text: prompt }],
-                    config: {
+
+                const model = genAI.getGenerativeModel({
+                    model: 'gemini-2.0-flash-exp',
+                    generationConfig: {
                         responseMimeType: "application/json",
                         responseSchema: getResponseSchema()
                     }
                 });
-                
+                const response = await model.generateContent(prompt);
+
                 return sendResponse(res, response);
 
             } else {
@@ -96,17 +96,17 @@ INSTRUCTIONS:
                 else if (filename.endsWith('.png')) aiMimeType = 'image/png';
                 else if (filename.endsWith('.jpg') || filename.endsWith('.jpeg')) aiMimeType = 'image/jpeg';
 
-                const response = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: [
-                        { inlineData: { mimeType: aiMimeType, data: base64Data } },
-                        { text: prompt }
-                    ],
-                    config: {
+                const model = genAI.getGenerativeModel({
+                    model: 'gemini-2.0-flash-exp',
+                    generationConfig: {
                         responseMimeType: "application/json",
                         responseSchema: getResponseSchema()
                     }
                 });
+                const response = await model.generateContent([
+                    { inlineData: { mimeType: aiMimeType, data: base64Data } },
+                    { text: prompt }
+                ]);
 
                 return sendResponse(res, response);
             }
@@ -141,7 +141,7 @@ function getResponseSchema() {
 
 function sendResponse(res, aiResponse) {
     try {
-        const text = aiResponse.text || "{}";
+        const text = aiResponse.response.text();
         const json = JSON.parse(text);
         return res.status(200).json({ success: true, data: json });
     } catch (e) {

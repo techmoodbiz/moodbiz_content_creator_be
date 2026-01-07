@@ -5,17 +5,17 @@ import admin from 'firebase-admin';
 
 // Initialize Firebase Admin
 if (!admin.apps.length) {
-  try {
-    admin.initializeApp({
-      credential: admin.credential.cert({
-        projectId: process.env.FIREBASE_PROJECT_ID,
-        clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-        privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
-      }),
-    });
-  } catch (error) {
-    console.error('Firebase admin init error', error);
-  }
+    try {
+        admin.initializeApp({
+            credential: admin.credential.cert({
+                projectId: process.env.FIREBASE_PROJECT_ID,
+                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, '\n'),
+            }),
+        });
+    } catch (error) {
+        console.error('Firebase admin init error', error);
+    }
 }
 
 export default async function handler(req, res) {
@@ -35,13 +35,13 @@ export default async function handler(req, res) {
     // --- AUTH VERIFICATION ---
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
     const token = authHeader.split('Bearer ')[1];
     try {
-      await admin.auth().verifyIdToken(token);
+        await admin.auth().verifyIdToken(token);
     } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
+        return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
     }
     // -------------------------
 
@@ -93,8 +93,8 @@ export default async function handler(req, res) {
         });
 
         $("h1, h2, h3").each((i, elem) => {
-             const text = $(elem).text().trim();
-             if (text) extractedData.headings.push(text);
+            const text = $(elem).text().trim();
+            if (text) extractedData.headings.push(text);
         });
 
         // 2. Analyze with Gemini
@@ -107,8 +107,8 @@ ${extractedData.mainText.substring(0, 80000)}
         `;
 
         // FIX IMPORT
-        const { GoogleGenAI } = await import("@google/genai");
-        const ai = new GoogleGenAI({ apiKey: apiKey });
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(apiKey);
 
         const prompt = `
 You are a Senior Brand Strategist. Analyze the provided website content to reverse-engineer the "Brand DNA".
@@ -125,10 +125,9 @@ INPUT CONTEXT:
 ${contentContext}
 `;
 
-        const aiResult = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: [{ text: prompt }],
-            config: {
+        const model = genAI.getGenerativeModel({
+            model: 'gemini-2.0-flash-exp',
+            generationConfig: {
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: "OBJECT",
@@ -148,8 +147,9 @@ ${contentContext}
                 }
             }
         });
+        const aiResult = await model.generateContent(prompt);
 
-        const brandGuideline = JSON.parse(aiResult.text || "{}");
+        const brandGuideline = JSON.parse(aiResult.response.text());
 
         return res.status(200).json({ success: true, data: brandGuideline });
 

@@ -52,7 +52,9 @@ export default async function handler(req, res) {
   // -------------------------
 
   try {
-    const { url } = req.body;
+    const { url, cleaningLevel = 'aggressive' } = req.body;
+    // cleaningLevel: 'aggressive' (default) - Dùng Gemini để clean kỹ cho brand guidelines
+    //                'minimal' - Chỉ xóa noise, giữ nguyên nội dung cho audit
 
     if (!url) return res.status(400).json({ error: 'URL is required' });
 
@@ -71,7 +73,7 @@ export default async function handler(req, res) {
     });
 
     if (!response.ok) {
-       throw new Error(`Website returned status ${response.status}`);
+      throw new Error(`Website returned status ${response.status}`);
     }
 
     const html = await response.text();
@@ -79,87 +81,87 @@ export default async function handler(req, res) {
 
     // 2. Extract Metadata (Thông tin quan trọng nhất)
     const metadata = {
-        title: $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '',
-        description: $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '',
-        keywords: $('meta[name="keywords"]').attr('content') || ''
+      title: $('title').text().trim() || $('meta[property="og:title"]').attr('content') || '',
+      description: $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '',
+      keywords: $('meta[name="keywords"]').attr('content') || ''
     };
 
     // 3. Remove Clutter (Xóa rác kỹ hơn)
     const tagsToRemove = [
-        'script', 'style', 'noscript', 'iframe', 'svg', 'video', 'audio', 'canvas', 'map', 'object',
-        'link', 'meta', // Đã lấy meta ở trên rồi
-        '[hidden]', '.hidden',
-        // Common noise classes/ids
-        '#header', '.header', 'header',
-        '#footer', '.footer', 'footer',
-        'nav', '.nav', '.navigation', '.menu', '#menu',
-        '.sidebar', '#sidebar', 'aside',
-        '.ads', '.advertisement', '.ad-banner',
-        '.cookie-banner', '#cookie-banner', '.gdpr',
-        '.social-share', '.share-buttons',
-        '.comments', '#comments', '.comment-section',
-        '.related-posts', '.recommended',
-        '.popup', '.modal',
-        '.login', '.signup', '.auth'
+      'script', 'style', 'noscript', 'iframe', 'svg', 'video', 'audio', 'canvas', 'map', 'object',
+      'link', 'meta', // Đã lấy meta ở trên rồi
+      '[hidden]', '.hidden',
+      // Common noise classes/ids
+      '#header', '.header', 'header',
+      '#footer', '.footer', 'footer',
+      'nav', '.nav', '.navigation', '.menu', '#menu',
+      '.sidebar', '#sidebar', 'aside',
+      '.ads', '.advertisement', '.ad-banner',
+      '.cookie-banner', '#cookie-banner', '.gdpr',
+      '.social-share', '.share-buttons',
+      '.comments', '#comments', '.comment-section',
+      '.related-posts', '.recommended',
+      '.popup', '.modal',
+      '.login', '.signup', '.auth'
     ];
     $(tagsToRemove.join(', ')).remove();
-    
+
     // 4. Smart Content Extraction Strategy
     let $content = null;
-    
+
     // Ưu tiên thẻ ngữ nghĩa chứa nội dung bài viết
     const contentSelectors = [
-        'article', 
-        '[role="main"]', 
-        '.post-content', 
-        '.entry-content', 
-        '#content', 
-        '.content', 
-        '.article-body', 
-        'main'
+      'article',
+      '[role="main"]',
+      '.post-content',
+      '.entry-content',
+      '#content',
+      '.content',
+      '.article-body',
+      'main'
     ];
-    
+
     for (const selector of contentSelectors) {
-        if ($(selector).length > 0) {
-            $content = $(selector).first(); // Lấy phần tử đầu tiên khớp
-            break;
-        }
+      if ($(selector).length > 0) {
+        $content = $(selector).first(); // Lấy phần tử đầu tiên khớp
+        break;
+      }
     }
 
     // Fallback: Nếu không tìm thấy main content, dùng body (đã được dọn dẹp)
     if (!$content) {
-        $content = $('body');
+      $content = $('body');
     }
 
     // 5. Structure Preservation (Giữ cấu trúc xuống dòng)
     // Thay thế các thẻ block bằng ký tự xuống dòng để text không bị dính chùm
     $content.find('br').replaceWith('\n');
     $content.find('p, div, h1, h2, h3, h4, h5, h6, li, tr').each((i, el) => {
-        $(el).after('\n');
+      $(el).after('\n');
     });
 
     // Lấy text và làm sạch khoảng trắng thừa
     let rawText = $content.text();
     // Thay thế nhiều dòng trống liên tiếp bằng 1 dòng trống
-    rawText = rawText.replace(/\n\s*\n/g, '\n\n').trim(); 
+    rawText = rawText.replace(/\n\s*\n/g, '\n\n').trim();
 
     if (rawText.length < 50) {
-        // Fallback: Nếu nội dung quá ngắn, thử lấy lại toàn bộ body text
-        rawText = $('body').text().replace(/\n\s*\n/g, '\n\n').trim();
-        if (rawText.length < 50) {
-             throw new Error("Nội dung trang web quá ngắn hoặc được render bằng JavaScript (SPA).");
-        }
+      // Fallback: Nếu nội dung quá ngắn, thử lấy lại toàn bộ body text
+      rawText = $('body').text().replace(/\n\s*\n/g, '\n\n').trim();
+      if (rawText.length < 50) {
+        throw new Error("Nội dung trang web quá ngắn hoặc được render bằng JavaScript (SPA).");
+      }
     }
 
     let finalContent = rawText;
 
-    // 6. Gemini Cleaning & Structuring (QUAN TRỌNG)
-    if (process.env.GEMINI_API_KEY) {
-        try {
-            const { GoogleGenAI } = await import("@google/genai");
-            const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-            
-            const prompt = `
+    // 6. Gemini Cleaning & Structuring (CHỈ CHO MODE 'aggressive')
+    if (cleaningLevel === 'aggressive' && process.env.GEMINI_API_KEY) {
+      try {
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+
+        const prompt = `
 Role: Web Content Extractor.
 Task: Reconstruct the main article from the raw scraped text below.
 
@@ -172,35 +174,48 @@ Instructions:
 2. Focus on the main body content related to the Title.
 3. Preserve the original meaning and structure (headings, paragraphs).
 4. Output cleanly formatted text (Markdown is preferred).
+5. Remove duplicate content and redundant text.
+6. Keep only article/product description, technical details, and relevant information.
 
 Raw Scraped Text:
 """
 ${rawText.substring(0, 40000)} // Giới hạn token
 """
 `;
-            const result = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [{ text: prompt }]
-            });
-            
-            if (result.text && result.text.length > 50) {
-                finalContent = result.text;
-            }
-        } catch (e) {
-            console.warn("Gemini cleaning failed, using raw text:", e.message);
-            // Fallback: prepend metadata to raw text for context
-            finalContent = `Title: ${metadata.title}\nDescription: ${metadata.description}\n\n${rawText}`;
+
+        const model = genAI.getGenerativeModel({
+          model: 'gemini-2.0-flash-exp',
+          generationConfig: {
+            temperature: 0.3, // Lower for more focused extraction
+            topP: 0.8,
+            topK: 20,
+            maxOutputTokens: 8000
+          }
+        });
+
+        const result = await model.generateContent(prompt);
+        const responseText = result.response.text();
+
+        if (responseText && responseText.length > 50) {
+          finalContent = responseText;
+          console.log('✅ Gemini cleaning successful');
         }
-    } else {
-        // Nếu không có AI, vẫn ghép metadata vào để kết quả tốt hơn
+      } catch (e) {
+        console.warn("Gemini cleaning failed, using raw text:", e.message);
+        // Fallback: prepend metadata to raw text for context
         finalContent = `Title: ${metadata.title}\nDescription: ${metadata.description}\n\n${rawText}`;
+      }
+    } else {
+      // Nếu không có AI, vẫn ghép metadata vào để kết quả tốt hơn
+      finalContent = `Title: ${metadata.title}\nDescription: ${metadata.description}\n\n${rawText}`;
     }
 
     return res.status(200).json({
-        success: true,
-        text: finalContent,
-        metadata: metadata,
-        url: url
+      success: true,
+      text: finalContent,
+      metadata: metadata,
+      url: url,
+      cleaningLevel: cleaningLevel // Thông báo mode đã dùng
     });
 
   } catch (error) {

@@ -19,7 +19,7 @@ function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
     const rawParagraphs = cleanText.split(/\n\s*\n/);
     const chunks = [];
     let currentChunk = "";
-    
+
     for (const para of rawParagraphs) {
         const cleanPara = para.trim();
         if (!cleanPara) continue;
@@ -54,13 +54,13 @@ export default async function handler(req, res) {
     // --- AUTH VERIFICATION ---
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
     const token = authHeader.split('Bearer ')[1];
     try {
-      await admin.auth().verifyIdToken(token);
+        await admin.auth().verifyIdToken(token);
     } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
+        return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
     }
     // -------------------------
 
@@ -80,11 +80,10 @@ export default async function handler(req, res) {
         if (originalText.length > 300) {
             console.log("Cleaning text with Gemini 3.0...");
             try {
-                const { GoogleGenAI } = await import("@google/genai/node");
-                const ai = new GoogleGenAI({ apiKey: apiKey });
-                const cleanResponse = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: [{ text: `
+                const { GoogleGenerativeAI } = await import("@google/generative-ai");
+                const genAI = new GoogleGenerativeAI(apiKey);
+                const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+                const cleanResponse = await model.generateContent(`
 You are a Data Curator for a RAG System.
 Your task: CLEAN the following raw text.
 1. Remove "UI Noise" (Navigation menus, Footers, "Read more", "Accept Cookies", Advertisement placeholders).
@@ -96,14 +95,14 @@ RAW TEXT:
 """
 ${originalText.substring(0, 50000)}
 """
-` }]
-                });
-                
-                if (cleanResponse.text && cleanResponse.text.length > 50) {
-                    processedText = cleanResponse.text;
+`);
+
+                const responseText = cleanResponse.response.text();
+                if (responseText && responseText.length > 50) {
+                    processedText = responseText;
                 }
-            } catch (e) { 
-                console.error("Cleaning failed", e); 
+            } catch (e) {
+                console.error("Cleaning failed", e);
                 // Fallback to original text if AI fails
             }
         }

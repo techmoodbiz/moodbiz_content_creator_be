@@ -60,22 +60,6 @@ export default async function handler(req, res) {
         const { userId } = req.body;
         if (!userId) return res.status(400).json({ error: "Missing userId" });
 
-        // --- SECURITY CHECK FOR BRAND OWNER ---
-        // Brand Owner chỉ được xóa Content Creator
-        if (currentUserData.role === 'brand_owner') {
-            const targetUserDoc = await db.collection("users").doc(userId).get();
-            const targetUserData = targetUserDoc.data();
-            
-            if (!targetUserDoc.exists) {
-                return res.status(404).json({ error: "User not found" });
-            }
-
-            if (targetUserData.role !== 'content_creator') {
-                return res.status(403).json({ error: "Brand Owners can only delete Content Creator accounts." });
-            }
-        }
-        // -------------------------------------
-
         console.log(`Deleting user: ${userId}, requested by: ${currentUser.uid}`);
 
         // 1. Xóa user khỏi Authentication (Nếu tồn tại)

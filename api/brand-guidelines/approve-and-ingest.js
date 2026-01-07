@@ -21,10 +21,10 @@ const bucket = admin.storage().bucket();
 function semanticChunking(text, maxChunkSize = 1000, minChunkSize = 100) {
     const cleanText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
     const rawParagraphs = cleanText.split(/\n\s*\n/);
-    
+
     const chunks = [];
     let currentChunk = "";
-    
+
     for (const para of rawParagraphs) {
         const cleanPara = para.trim();
         if (!cleanPara) continue;
@@ -72,13 +72,13 @@ export default async function handler(req, res) {
     // --- AUTH VERIFICATION ---
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
+        return res.status(401).json({ error: 'Unauthorized: Missing or invalid token' });
     }
     const token = authHeader.split('Bearer ')[1];
     try {
-      await admin.auth().verifyIdToken(token);
+        await admin.auth().verifyIdToken(token);
     } catch (error) {
-      return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
+        return res.status(401).json({ error: 'Unauthorized: Token verification failed' });
     }
     // -------------------------
 
@@ -100,25 +100,29 @@ export default async function handler(req, res) {
         let text = '';
         const fileName = (guideline.file_name || '').toLowerCase();
 
-        // --- VISUAL OCR USING GEMINI 3.0 FLASH ---
-        const { GoogleGenAI } = await import("@google/genai/node");
-        const ai = new GoogleGenAI({ apiKey: apiKey });
+        // --- VISUAL OCR USING GEMINI 2.0 FLASH ---
+        const { GoogleGenerativeAI } = await import("@google/generative-ai");
+        const genAI = new GoogleGenerativeAI(apiKey);
 
         if (fileName.endsWith('.pdf')) {
             console.log("Processing PDF with Gemini Vision...");
             const base64Data = fileBuffer.toString('base64');
-            
+
             // Send direct PDF buffer to Gemini (MIME type application/pdf)
-            // Gemini 3.0 Flash is multimodal and can read PDFs natively
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [
-                    { inlineData: { mimeType: 'application/pdf', data: base64Data } },
-                    { text: "Extract ALL text from this document.\nRULES:\n1. Keep structure (Headers, Lists) as Markdown.\n2. Do NOT summarize. I need the full content.\n3. Represents tables as Markdown tables." }
-                ]
-            });
-            text = response.text || "";
-            
+            // Gemini 2.0 Flash is multimodal and can read PDFs natively
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            const response = await model.generateContent([
+                {
+                    inlineData: {
+                        mimeType: 'application/pdf',
+                        data: base64Data
+                    }
+                },
+                { text: "Extract ALL text from this document.\nRULES:\n1. Keep structure (Headers, Lists) as Markdown.\n2. Do NOT summarize. I need the full content.\n3. Represents tables as Markdown tables." }
+            ]);
+            text = response.response.text();
+
         } else if (fileName.match(/\.(jpg|jpeg|png|webp)$/)) {
             console.log("Processing Image with Gemini Vision...");
             const base64Data = fileBuffer.toString('base64');
@@ -126,14 +130,18 @@ export default async function handler(req, res) {
             if (fileName.endsWith('jpg') || fileName.endsWith('jpeg')) mimeType = 'image/jpeg';
             if (fileName.endsWith('webp')) mimeType = 'image/webp';
 
-             const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: [
-                    { inlineData: { mimeType: mimeType, data: base64Data } },
-                    { text: "Transcribe the text in this image to Markdown." }
-                ]
-            });
-            text = response.text || "";
+            const model = genAI.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+
+            const response = await model.generateContent([
+                {
+                    inlineData: {
+                        mimeType: mimeType,
+                        data: base64Data
+                    }
+                },
+                { text: "Transcribe the text in this image to Markdown." }
+            ]);
+            text = response.response.text();
 
         } else if (fileName.endsWith('.docx') || fileName.endsWith('.doc')) {
             // Mammoth is good for Docx text
@@ -162,36 +170,82 @@ export default async function handler(req, res) {
         });
 
         const results = await Promise.all(embeddingPromises);
-        
+
+        // --- BATCH WRITE WITH ERROR HANDLING ---
         let batch = db.batch();
         let opCounter = 0;
         const BATCH_SIZE = 400;
+        let successCount = 0;
+        let failCount = 0;
 
         for (const chunkData of results) {
-            if (!chunkData.embedding) continue; 
             const chunkRef = guidelineRef.collection('chunks').doc();
+
+            // Store chunk even without embedding (allow null for fallback to simple RAG)
             batch.set(chunkRef, {
                 text: chunkData.text,
-                embedding: chunkData.embedding,
+                embedding: chunkData.embedding || null,
+                has_embedding: !!chunkData.embedding,
                 chunk_index: chunkData.chunk_index,
                 is_master_source: !!guideline.is_primary,
-                metadata: { source_file: guideline.file_name, char_count: chunkData.text.length, type: "semantic_block", extraction_method: "gemini_vision_v3" },
+                metadata: {
+                    source_file: guideline.file_name,
+                    char_count: chunkData.text.length,
+                    type: "semantic_block",
+                    extraction_method: "gemini_vision_v2"
+                },
                 created_at: admin.firestore.FieldValue.serverTimestamp(),
             });
+
+            if (chunkData.embedding) successCount++;
+            else failCount++;
+
             opCounter++;
-            if (opCounter >= BATCH_SIZE) { await batch.commit(); batch = db.batch(); opCounter = 0; }
+
+            // Commit batch when reaching limit
+            if (opCounter >= BATCH_SIZE) {
+                try {
+                    await batch.commit();
+                    console.log(`Committed batch of ${opCounter} chunks`);
+                } catch (batchError) {
+                    console.error("Batch commit error:", batchError);
+                    // Implement retry logic
+                    try {
+                        console.log("Retrying batch commit...");
+                        await batch.commit();
+                    } catch (retryError) {
+                        throw new Error(`Failed to commit batch after retry: ${retryError.message}`);
+                    }
+                }
+                batch = db.batch();
+                opCounter = 0;
+            }
         }
 
+        // Final batch commit with error handling
         batch.update(guidelineRef, {
             status: 'approved',
-            guideline_text: text.substring(0, 50000), 
+            guideline_text: text.substring(0, 50000),
             chunk_count: results.length,
-            processing_method: 'gemini_vision_v3',
+            chunks_with_embedding: successCount,
+            chunks_without_embedding: failCount,
+            processing_method: 'gemini_vision_v2',
             updated_at: admin.firestore.FieldValue.serverTimestamp(),
         });
 
-        await batch.commit();
-        res.status(200).json({ success: true, message: `Processed ${chunks.length} chunks via Gemini Vision` });
+        try {
+            await batch.commit();
+            console.log(`✅ Final batch committed. Total: ${results.length} chunks (${successCount} with embeddings, ${failCount} without)`);
+        } catch (finalError) {
+            console.error("Final batch commit error:", finalError);
+            throw new Error(`Failed to finalize guideline: ${finalError.message}`);
+        }
+
+        res.status(200).json({
+            success: true,
+            message: `Processed ${results.length} chunks (${successCount} with embeddings)`,
+            stats: { total: results.length, withEmbedding: successCount, withoutEmbedding: failCount }
+        });
 
     } catch (e) {
         console.error("Ingest Error:", e);
