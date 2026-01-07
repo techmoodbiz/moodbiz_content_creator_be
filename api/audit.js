@@ -16,7 +16,7 @@ if (!admin.apps.length) {
 }
 
 /**
- * Hàm parse JSON an toàn (Đã nâng cấp)
+ * Hàm parse JSON an toàn (đã nâng cấp) - THUẦN JS
  */
 function robustJSONParse(text) {
   if (!text) return null;
@@ -25,8 +25,11 @@ function robustJSONParse(text) {
   let clean = typeof text === 'string' ? text : JSON.stringify(text);
   clean = clean.trim();
 
-  // 2. Loại bỏ Markdown code blocks
-  clean = clean.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/, '');
+  // 2. Loại bỏ Markdown code blocks ở đầu/cuối
+  clean = clean
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/\s*```$/, '');
 
   // 3. Tìm cặp ngoặc nhọn {} ngoài cùng
   const firstBrace = clean.indexOf('{');
@@ -45,16 +48,20 @@ function robustJSONParse(text) {
   } catch (e) {
     // 6. Nếu lỗi, cố gắng sửa các lỗi phổ biến
     try {
-      // Regex: tìm dấu phẩy theo sau bởi khoảng trắng và dấu đóng (Trailing commas)
+      // Trailing commas
       let fixed = clean.replace(/,(\s*[}\]])/g, '$1');
 
-      // Fix: Missing commas between objects in array (e.g. }{ or } {)
+      // Missing commas giữa các object trong array: }{ hoặc } {
       fixed = fixed.replace(/}\s*{/g, '},{');
 
       return JSON.parse(fixed);
     } catch (e2) {
-      console.error("JSON Parse Error Detail:", e2.message, "Raw Text Length:", text.length);
-      // Fallback: Return null to let the UI handle the raw text
+      console.error(
+        'JSON Parse Error Detail:',
+        e2.message,
+        'Raw Text Length:',
+        clean.length
+      );
       return null;
     }
   }
@@ -98,7 +105,7 @@ export default async function handler(req, res) {
   // -------------------------
 
   try {
-    const { constructedPrompt, text } = req.body;
+    const { constructedPrompt, text, maxIssues } = req.body;
     const apiKey = process.env.GEMINI_API_KEY;
 
     if (!apiKey) {
@@ -112,8 +119,7 @@ export default async function handler(req, res) {
     const { GoogleGenerativeAI, SchemaType } = await import('@google/generative-ai');
     const genAI = new GoogleGenerativeAI(apiKey);
 
-    // --- CẤU HÌNH STRICT SCHEMA ---
-    // Sử dụng SchemaType từ SDK để đảm bảo tương thích
+    // --- STRICT SCHEMA ---
     const auditResponseSchema = {
       type: SchemaType.OBJECT,
       properties: {
@@ -123,18 +129,24 @@ export default async function handler(req, res) {
           items: {
             type: SchemaType.OBJECT,
             properties: {
-              category: { type: SchemaType.STRING, enum: ["language", "ai_logic", "brand", "product"] },
+              category: {
+                type: SchemaType.STRING,
+                enum: ['language', 'ai_logic', 'brand', 'product'],
+              },
               problematic_text: { type: SchemaType.STRING },
               citation: { type: SchemaType.STRING },
               reason: { type: SchemaType.STRING },
-              severity: { type: SchemaType.STRING, enum: ["High", "Medium", "Low"] },
-              suggestion: { type: SchemaType.STRING }
+              severity: {
+                type: SchemaType.STRING,
+                enum: ['High', 'Medium', 'Low'],
+              },
+              suggestion: { type: SchemaType.STRING },
             },
-            required: ["category", "problematic_text", "reason", "suggestion", "severity"]
-          }
-        }
+            required: ['category', 'problematic_text', 'reason', 'suggestion', 'severity'],
+          },
+        },
       },
-      required: ["summary", "identified_issues"]
+      required: ['summary', 'identified_issues'],
     };
 
     let finalPrompt = constructedPrompt;
@@ -142,18 +154,21 @@ export default async function handler(req, res) {
       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
-    // Tối ưu Prompt để tránh Truncation
+    // Số lỗi tối đa FE có thể truyền lên (mặc định 50)
+    const maxItems = Number.isInteger(maxIssues) && maxIssues > 0 ? maxIssues : 50;
+
+    // Prompt: KHÔNG khóa cứng 15 lỗi
     finalPrompt += `
 *** CRITICAL INSTRUCTION ***
 1. Output PURE JSON matching the provided schema.
 2. Do NOT include markdown formatting like \`\`\`json.
 3. Do NOT include any introductory text.
 4. Ensure "summary" is in Vietnamese and CONCISE (under 100 words).
-5. LIMIT "identified_issues" to the TOP 15 most critical issues to ensure the JSON response is complete and valid.
-6. Ensure "reason" and "suggestion" are in Vietnamese.
+5. Return ALL important "identified_issues" you can find, sorted by severity (High > Medium > Low).
+6. If there are too many issues, ưu tiên các lỗi nghiêm trọng và ảnh hưởng lớn nhất.
+7. "reason" và "suggestion" phải bằng tiếng Việt.
 `;
 
-    // Sử dụng gemini-2.0-flash-exp
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
       generationConfig: {
@@ -161,13 +176,12 @@ export default async function handler(req, res) {
         topP: 0.95,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
-        responseSchema: auditResponseSchema
+        responseSchema: auditResponseSchema,
       },
     });
 
     const response = await model.generateContent(finalPrompt);
 
-    // Lấy text JSON trả về
     let resultText = '';
     try {
       if (response && response.response && typeof response.response.text === 'function') {
@@ -181,24 +195,33 @@ export default async function handler(req, res) {
       resultText = '{}';
     }
 
-    // Parse kết quả
     let parsedResult = robustJSONParse(resultText);
+
+    // Backend limit (mặc định 50, hoặc theo maxIssues)
+    if (
+      parsedResult &&
+      parsedResult.identified_issues &&
+      Array.isArray(parsedResult.identified_issues)
+    ) {
+      parsedResult.identified_issues = parsedResult.identified_issues.slice(0, maxItems);
+    }
 
     // --- FAIL-SAFE FALLBACK ---
     if (!parsedResult) {
       console.warn('JSON Parse Failed even with Schema. Fallback active.');
-      // Log một phần text để debug
       console.log('Raw Failed JSON (First 500 chars):', resultText.substring(0, 500));
 
       parsedResult = {
-        summary: 'Cảnh báo: Hệ thống gặp lỗi khi đọc dữ liệu từ AI (JSON Syntax Error). Dưới đây là nội dung thô:',
+        summary:
+          'Cảnh báo: Hệ thống gặp lỗi khi đọc dữ liệu từ AI (JSON Syntax Error). Dưới đây là nội dung thô:',
         identified_issues: [
           {
             category: 'ai_logic',
             severity: 'Low',
             problematic_text: 'System Format Warning',
             citation: 'System',
-            reason: 'Dữ liệu trả về từ AI không đúng định dạng JSON chuẩn hoặc bị cắt ngắn.',
+            reason:
+              'Dữ liệu trả về từ AI không đúng định dạng JSON chuẩn hoặc bị cắt ngắn.',
             suggestion: 'Vui lòng thử lại với đoạn văn bản ngắn hơn.',
           },
           {
