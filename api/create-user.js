@@ -1,5 +1,8 @@
 import admin from "firebase-admin";
 import nodemailer from "nodemailer";
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 if (!admin.apps.length) {
     try {
@@ -81,12 +84,18 @@ export default async function handler(req, res) {
 
         // 3. Generate Verification Link & Send Email
         let emailStatus = "skipped";
+        let verificationLink = null;
+
+        try {
+            // Luôn tạo link xác thực dù có SMTP hay không
+            verificationLink = await auth.generateEmailVerificationLink(email);
+        } catch (linkError) {
+            console.error("Error generating verification link:", linkError);
+        }
 
         // Chỉ gửi mail nếu có cấu hình SMTP
-        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+        if (process.env.SMTP_USER && process.env.SMTP_PASS && verificationLink) {
             try {
-                const verificationLink = await auth.generateEmailVerificationLink(email);
-
                 const transporter = nodemailer.createTransport({
                     service: process.env.SMTP_SERVICE || 'gmail',
                     auth: {
@@ -117,13 +126,18 @@ export default async function handler(req, res) {
                 emailStatus = "failed: " + emailError.message;
             }
         } else {
-            console.warn("SMTP credentials missing. Email verification skipped.");
+            console.warn("SMTP credentials missing or link generation failed. Email verification skipped.");
+            if (verificationLink) {
+                // Log link ra console server để debug
+                console.log(">>> MANUAL VERIFICATION LINK:", verificationLink);
+            }
         }
 
         return res.status(200).json({
             success: true,
             message: `Created user ${name} successfully. Email status: ${emailStatus}`,
             userId: newUser.uid,
+            verificationLink: verificationLink // Trả về link để admin có thể gửi thủ công nếu cần
         });
     } catch (error) {
         return res.status(500).json({ error: "Server error: " + error.message });
