@@ -63,7 +63,7 @@ export default async function handler(req, res) {
     const auditSchema = {
       type: "OBJECT",
       properties: {
-        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng TIẾNG VIỆT (Ngắn gọn, súc tích)" },
+        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng TIẾNG VIỆT. Phải nghiêm khắc và chỉ ra ngay vấn đề lớn nhất." },
         identified_issues: {
           type: "ARRAY",
           items: {
@@ -72,13 +72,13 @@ export default async function handler(req, res) {
               category: {
                 type: "STRING",
                 enum: ["language", "ai_logic", "brand", "product"],
-                description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words, Generic AI tone.\n- 'product': Wrong Specs/Price/Features."
+                description: "CLASSIFICATION RULES:\n- 'language': Clunky Vietnamese, Wordiness, Passive Voice, Grammar, Spelling.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinations.\n- 'brand': Tone violation, Forbidden words.\n- 'product': Wrong Specs/Facts."
               },
-              problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
-              citation: { type: "STRING", description: "Tên quy tắc vi phạm (Hiển thị tên Rule/Label). VD: 'Loại bỏ từ thừa'. KHÔNG dùng mã Code." },
-              reason: { type: "STRING", description: "Giải thích chi tiết tại sao đây là lỗi (Bằng TIẾNG VIỆT)" },
-              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ nghiêm trọng" },
-              suggestion: { type: "STRING", description: "Đề xuất sửa đổi cụ thể (Bằng TIẾNG VIỆT)" }
+              problematic_text: { type: "STRING", description: "Trích dẫn nguyên văn đoạn lỗi" },
+              citation: { type: "STRING", description: "Tên quy tắc vi phạm (Label). VD: 'Văn phong tự nhiên', 'Loại bỏ từ thừa'. KHÔNG dùng mã code." },
+              reason: { type: "STRING", description: "Giải thích lỗi thật chi tiết và khó tính (Bằng TIẾNG VIỆT)" },
+              severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "High = Sai sự thật/Cấm. Medium = Lủng củng/Sáo rỗng. Low = Lỗi vặt." },
+              suggestion: { type: "STRING", description: "Viết lại câu này cho thật hay và tự nhiên (Tiếng Việt)" }
             },
             required: ["category", "problematic_text", "citation", "reason", "severity", "suggestion"]
           }
@@ -90,17 +90,17 @@ export default async function handler(req, res) {
     // Construct prompt
     let finalPrompt = constructedPrompt;
     if (!finalPrompt) {
-      finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
+      finalPrompt = `Please audit the following text strictly:\n"""\n${text}\n"""`;
     }
 
-    // SYSTEM REMINDER (SANDWICH) - Reinforced
-    finalPrompt += "\n\nIMPORTANT: \n1. Think deeply before answering. \n2. Separate 'Product Spec Errors' from 'General AI Hallucinations'. \n3. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. \n4. **OUTPUT MUST BE IN VIETNAMESE** (Summary, Reason, Suggestion) - This is a hard requirement. \n5. **CITATION** MUST use the Display Name/Label (e.g., 'Dấu câu chuẩn'), NOT the Code (like LANG_001). \n6. Output ONLY valid JSON.";
+    // SYSTEM REMINDER (SANDWICH) - Reinforced for EXTREME STRICTNESS
+    finalPrompt += "\n\n*** SYSTEM OVERRIDE: PEDANTIC MODE ON ***\n1. Be an extremely strict editor. Find faults in flow, word choice, and logic.\n2. **Translationese Check:** If the Vietnamese sounds like translated English (e.g. structure 'Adj + Noun' where 'Noun + Adj' is better, or overuse of 'của'), FLAG IT as 'Language Naturalness'.\n3. **Cliché Check:** Flag words like 'tối ưu hóa', 'giải pháp hàng đầu' if they lack context.\n4. **Output:** MUST BE IN VIETNAMESE. \n5. **Citation:** Use DISPLAY NAMES (Labels), never codes.\n6. Return valid JSON.";
 
     // Use gemini-2.0-flash-exp with correct SDK syntax
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        temperature: 0.2,
+        temperature: 0.1, // Very low temperature for consistent, strict checking
         topP: 0.9,
         maxOutputTokens: 8192,
         responseMimeType: "application/json",
@@ -115,7 +115,7 @@ export default async function handler(req, res) {
     // Robust cleaning on backend
     resultText = resultText.replace(/```json/gi, "").replace(/```/g, "").trim();
 
-    // Attempt to parse JSON on server side to catch errors early
+    // Attempt to parse JSON
     let parsedResult;
     try {
       parsedResult = JSON.parse(resultText);
@@ -123,7 +123,6 @@ export default async function handler(req, res) {
       console.error("Backend JSON Parse Error:", parseError);
       console.error("Raw Text:", resultText);
 
-      // Fallback: Return a valid error object structure if parsing fails
       parsedResult = {
         summary: "Lỗi hệ thống khi xử lý kết quả AI (JSON Error).",
         identified_issues: [{
@@ -139,7 +138,7 @@ export default async function handler(req, res) {
 
     return res.status(200).json({
       success: true,
-      result: parsedResult // Return OBJECT, not string
+      result: parsedResult
     });
 
   } catch (error) {
