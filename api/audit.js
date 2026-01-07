@@ -63,7 +63,7 @@ export default async function handler(req, res) {
     const auditSchema = {
       type: "OBJECT",
       properties: {
-        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng tiếng Việt (Ngắn gọn, súc tích)" },
+        summary: { type: "STRING", description: "Tóm tắt kết quả audit bằng TIẾNG VIỆT (Ngắn gọn, súc tích)" },
         identified_issues: {
           type: "ARRAY",
           items: {
@@ -75,12 +75,12 @@ export default async function handler(req, res) {
                 description: "CLASSIFICATION RULES:\n- 'language': Spelling, Grammar, Punctuation, TYPOS, WRONG ABBREVIATIONS (e.g. 'CMR' vs 'CRM'), Clunky phrasing.\n- 'ai_logic': Reasoning errors, Contradictions, Hallucinated Events/Awards, Repetitive Ideas.\n- 'brand': Tone of Voice, Forbidden words, Generic AI tone.\n- 'product': Wrong Specs/Price/Features."
               },
               problematic_text: { type: "STRING", description: "Trích dẫn đoạn văn bản bị lỗi" },
-              citation: { type: "STRING", description: "Quy tắc bị vi phạm (VD: SOP Rule, Brand Voice)" },
-              reason: { type: "STRING", description: "Giải thích chi tiết tại sao đây là lỗi" },
+              citation: { type: "STRING", description: "Tên quy tắc vi phạm (Hiển thị tên Rule/Label). VD: 'Loại bỏ từ thừa'. KHÔNG dùng mã Code." },
+              reason: { type: "STRING", description: "Giải thích chi tiết tại sao đây là lỗi (Bằng TIẾNG VIỆT)" },
               severity: { type: "STRING", enum: ["High", "Medium", "Low"], description: "Mức độ nghiêm trọng" },
-              suggestion: { type: "STRING", description: "Đề xuất sửa đổi cụ thể" }
+              suggestion: { type: "STRING", description: "Đề xuất sửa đổi cụ thể (Bằng TIẾNG VIỆT)" }
             },
-            required: ["category", "problematic_text", "reason", "severity", "suggestion"]
+            required: ["category", "problematic_text", "citation", "reason", "severity", "suggestion"]
           }
         }
       },
@@ -94,7 +94,7 @@ export default async function handler(req, res) {
     }
 
     // SYSTEM REMINDER (SANDWICH)
-    finalPrompt += "\n\nIMPORTANT: Think deeply before answering. Separate 'Product Spec Errors' from 'General AI Hallucinations'. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. Output ONLY valid JSON.";
+    finalPrompt += "\n\nIMPORTANT: \n1. Think deeply before answering. \n2. Separate 'Product Spec Errors' from 'General AI Hallucinations'. \n3. Any spelling mistake or wrong abbreviation (e.g. CMR instead of CRM) MUST be 'language'. \n4. **OUTPUT MUST BE IN VIETNAMESE** (Summary, Reason, Suggestion). \n5. **CITATION** MUST use the Display Name/Label (e.g., 'Dấu câu chuẩn'), NOT the Code. \n6. Output ONLY valid JSON.";
 
     // Use gemini-2.0-flash-exp with correct SDK syntax
     const model = genAI.getGenerativeModel({
