@@ -43,14 +43,19 @@ function robustJSONParse(text) {
   try {
     return JSON.parse(clean);
   } catch (e) {
-    // 6. Nếu lỗi, dùng Regex mạnh để xóa dấu phẩy thừa trước dấu đóng }, ]
+    // 6. Nếu lỗi, cố gắng sửa các lỗi phổ biến
     try {
-      // Regex: tìm dấu phẩy theo sau bởi khoảng trắng và dấu đóng
-      const fixed = clean.replace(/,(\s*[}\]])/g, '$1');
+      // Regex: tìm dấu phẩy theo sau bởi khoảng trắng và dấu đóng (Trailing commas)
+      let fixed = clean.replace(/,(\s*[}\]])/g, '$1');
+
+      // Fix: Missing commas between objects in array (e.g. }{ or } {)
+      fixed = fixed.replace(/}\s*{/g, '},{');
+
       return JSON.parse(fixed);
     } catch (e2) {
-      console.error("JSON Parse Error Detail:", e2.message, "Raw Text:", text);
-      return null; // Parse thất bại hoàn toàn
+      console.error("JSON Parse Error Detail:", e2.message, "Raw Text Length:", text.length);
+      // Fallback: Return null to let the UI handle the raw text
+      return null;
     }
   }
 }
@@ -108,22 +113,22 @@ export default async function handler(req, res) {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     // --- CẤU HÌNH STRICT SCHEMA ---
-    // Ép buộc Gemini trả về đúng cấu trúc này, không được sai lệch.
+    // Sử dụng SchemaType từ SDK để đảm bảo tương thích
     const auditResponseSchema = {
-      type: "OBJECT", // SchemaType.OBJECT
+      type: SchemaType.OBJECT,
       properties: {
-        summary: { type: "STRING" },
+        summary: { type: SchemaType.STRING },
         identified_issues: {
-          type: "ARRAY",
+          type: SchemaType.ARRAY,
           items: {
-            type: "OBJECT",
+            type: SchemaType.OBJECT,
             properties: {
-              category: { type: "STRING", enum: ["language", "ai_logic", "brand", "product"] },
-              problematic_text: { type: "STRING" },
-              citation: { type: "STRING" },
-              reason: { type: "STRING" },
-              severity: { type: "STRING", enum: ["High", "Medium", "Low"] },
-              suggestion: { type: "STRING" }
+              category: { type: SchemaType.STRING, enum: ["language", "ai_logic", "brand", "product"] },
+              problematic_text: { type: SchemaType.STRING },
+              citation: { type: SchemaType.STRING },
+              reason: { type: SchemaType.STRING },
+              severity: { type: SchemaType.STRING, enum: ["High", "Medium", "Low"] },
+              suggestion: { type: SchemaType.STRING }
             },
             required: ["category", "problematic_text", "reason", "suggestion", "severity"]
           }
@@ -137,25 +142,26 @@ export default async function handler(req, res) {
       finalPrompt = `Please audit the following text:\n"""\n${text}\n"""`;
     }
 
-    // Tối ưu Prompt
+    // Tối ưu Prompt để tránh Truncation
     finalPrompt += `
 *** CRITICAL INSTRUCTION ***
-You must output PURE JSON matching the provided schema.
-Do NOT include markdown formatting like \`\`\`json.
-Do NOT include any introductory text.
-Ensure "summary" is in Vietnamese.
-Ensure "reason" and "suggestion" are in Vietnamese.
+1. Output PURE JSON matching the provided schema.
+2. Do NOT include markdown formatting like \`\`\`json.
+3. Do NOT include any introductory text.
+4. Ensure "summary" is in Vietnamese and CONCISE (under 100 words).
+5. LIMIT "identified_issues" to the TOP 15 most critical issues to ensure the JSON response is complete and valid.
+6. Ensure "reason" and "suggestion" are in Vietnamese.
 `;
 
     // Sử dụng gemini-2.0-flash-exp
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
       generationConfig: {
-        temperature: 0.1, // Cực thấp để đảm bảo logic và format
+        temperature: 0.1,
         topP: 0.95,
         maxOutputTokens: 8192,
         responseMimeType: 'application/json',
-        responseSchema: auditResponseSchema // KEY FIX: Ép kiểu Schema
+        responseSchema: auditResponseSchema
       },
     });
 
@@ -181,26 +187,26 @@ Ensure "reason" and "suggestion" are in Vietnamese.
     // --- FAIL-SAFE FALLBACK ---
     if (!parsedResult) {
       console.warn('JSON Parse Failed even with Schema. Fallback active.');
-      // Log raw text để debug nếu vẫn lỗi
-      console.log('Raw Failed JSON:', resultText);
+      // Log một phần text để debug
+      console.log('Raw Failed JSON (First 500 chars):', resultText.substring(0, 500));
 
       parsedResult = {
-        summary: 'Cảnh báo: Hệ thống gặp lỗi khi đọc dữ liệu từ AI. Dưới đây là nội dung thô:',
+        summary: 'Cảnh báo: Hệ thống gặp lỗi khi đọc dữ liệu từ AI (JSON Syntax Error). Dưới đây là nội dung thô:',
         identified_issues: [
           {
             category: 'ai_logic',
             severity: 'Low',
             problematic_text: 'System Format Warning',
             citation: 'System',
-            reason: 'Không thể phân tích định dạng JSON.',
-            suggestion: 'Vui lòng thử lại.',
+            reason: 'Dữ liệu trả về từ AI không đúng định dạng JSON chuẩn hoặc bị cắt ngắn.',
+            suggestion: 'Vui lòng thử lại với đoạn văn bản ngắn hơn.',
           },
           {
             category: 'ai_logic',
             severity: 'Medium',
-            problematic_text: 'Raw Output',
+            problematic_text: 'Raw Output Preview',
             citation: 'Debug',
-            reason: (resultText || '').substring(0, 1000), // Show raw text
+            reason: (resultText || '').substring(0, 1000),
             suggestion: 'Contact Admin',
           },
         ],
