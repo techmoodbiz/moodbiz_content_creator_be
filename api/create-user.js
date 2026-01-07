@@ -1,5 +1,5 @@
-
 import admin from "firebase-admin";
+import nodemailer from "nodemailer";
 
 if (!admin.apps.length) {
     try {
@@ -60,12 +60,15 @@ export default async function handler(req, res) {
             return res.status(400).json({ error: "Missing required fields: name, email, password" });
         }
 
+        // 1. Create User in Firebase Auth
         const newUser = await auth.createUser({
             email,
             password,
             displayName: name,
+            emailVerified: false // Set explicitely to false so verify link works
         });
 
+        // 2. Create User Profile in Firestore
         await db.collection("users").doc(newUser.uid).set({
             name,
             email,
@@ -76,9 +79,50 @@ export default async function handler(req, res) {
             createdBy: currentUser.uid,
         });
 
+        // 3. Generate Verification Link & Send Email
+        let emailStatus = "skipped";
+
+        // Chỉ gửi mail nếu có cấu hình SMTP
+        if (process.env.SMTP_USER && process.env.SMTP_PASS) {
+            try {
+                const verificationLink = await auth.generateEmailVerificationLink(email);
+
+                const transporter = nodemailer.createTransport({
+                    service: process.env.SMTP_SERVICE || 'gmail',
+                    auth: {
+                        user: process.env.SMTP_USER,
+                        pass: process.env.SMTP_PASS,
+                    },
+                });
+
+                await transporter.sendMail({
+                    from: `"MOODBIZ Portal System" <${process.env.SMTP_USER}>`,
+                    to: email,
+                    subject: 'Chào mừng đến với MOODBIZ - Xác thực tài khoản',
+                    html: `
+                        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 10px;">
+                            <h2 style="color: #102d62;">Xin chào ${name},</h2>
+                            <p>Tài khoản của bạn đã được khởi tạo trên hệ thống <strong>MOODBIZ Digital Growth Partner</strong>.</p>
+                            <p>Vui lòng nhấn vào nút bên dưới để xác thực email và kích hoạt tài khoản:</p>
+                            <a href="${verificationLink}" style="display: inline-block; background-color: #01ccff; color: #102d62; font-weight: bold; padding: 12px 24px; text-decoration: none; border-radius: 5px; margin: 20px 0;">Xác thực ngay</a>
+                            <p style="font-size: 12px; color: #64748b;">Hoặc copy link này vào trình duyệt: <br/>${verificationLink}</p>
+                            <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 20px 0;">
+                            <p style="font-size: 12px; color: #94a3b8;">Email này được gửi tự động. Vui lòng không trả lời.</p>
+                        </div>
+                    `
+                });
+                emailStatus = "sent";
+            } catch (emailError) {
+                console.error("Failed to send verification email:", emailError);
+                emailStatus = "failed: " + emailError.message;
+            }
+        } else {
+            console.warn("SMTP credentials missing. Email verification skipped.");
+        }
+
         return res.status(200).json({
             success: true,
-            message: `Created user ${name} successfully`,
+            message: `Created user ${name} successfully. Email status: ${emailStatus}`,
             userId: newUser.uid,
         });
     } catch (error) {
