@@ -133,7 +133,7 @@ export default async function handler(req, res) {
             properties: {
               category: { type: SchemaType.STRING }, // Removed strict enum to prevent validation errors
               problematic_text: { type: SchemaType.STRING },
-              citation: { type: SchemaType.STRING },
+              citation: { type: SchemaType.STRING, description: "Must use exact Rule Label from SOP if applicable" },
               reason: { type: SchemaType.STRING },
               severity: { type: SchemaType.STRING },
               suggestion: { type: SchemaType.STRING }
@@ -155,8 +155,8 @@ export default async function handler(req, res) {
 \n*** IMPORTANT SYSTEM INSTRUCTIONS ***
 1. Return ONLY valid JSON. **DO NOT** use Markdown formatting (no \`\`\`json).
 2. "category" MUST be exactly one of: "language", "ai_logic", "brand", "product".
-3. **DEDUPLICATION RULE:** Ensure each problematic text span is listed ONLY ONCE under the most relevant category.
-4. Keep "reason" and "suggestion" concise and in Vietnamese.
+3. **DEDUPLICATION RULE:** Ensure each problematic text span is listed ONLY ONCE under the most relevant category (Product > Brand > Logic > Language).
+4. **CITATION RULE:** For "language" and "ai_logic" issues, the 'citation' field MUST match the EXACT SOP Rule Label provided in the prompt (e.g., "Loại bỏ từ thừa"). Do not invent new citation names.
 5. Limit to top 15 most critical issues.
 `;
 
