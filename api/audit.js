@@ -158,6 +158,7 @@ export default async function handler(req, res) {
 3. **DEDUPLICATION RULE:** Ensure each problematic text span is listed ONLY ONCE under the most relevant category (Product > Brand > Logic > Language).
 4. **CITATION RULE:** For "language" and "ai_logic" issues, the 'citation' field MUST match the EXACT SOP Rule Label provided in the prompt (e.g., "Loại bỏ từ thừa"). Do not invent new citation names.
 5. Limit to top 20 most critical issues.
+6. **LANGUAGE:** All "reason" and "suggestion" fields must be in **Vietnamese**.
 `;
 
     // Initialize Model
