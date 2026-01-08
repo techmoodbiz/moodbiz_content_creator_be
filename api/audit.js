@@ -112,7 +112,7 @@ Your job is to strictly evaluate the text against those provided sources and ret
 `;
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp',
+      model: 'gemini-3-flash-preview',
       systemInstruction: systemInstruction,
       generationConfig: {
         temperature: 0.1, // Low temperature for consistent auditing
