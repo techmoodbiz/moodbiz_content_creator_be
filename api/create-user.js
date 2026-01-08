@@ -90,11 +90,11 @@ export default async function handler(req, res) {
         // Kiểm tra biến môi trường
         const hasSmtpUser = !!process.env.SMTP_USER;
         const hasSmtpPass = !!process.env.SMTP_PASS;
-        
-        console.log(">>> [CreateUser] SMTP Check:", { 
-            hasUser: hasSmtpUser, 
+
+        console.log(">>> [CreateUser] SMTP Check:", {
+            hasUser: hasSmtpUser,
             hasPass: hasSmtpPass,
-            userEmail: process.env.SMTP_USER 
+            userEmail: process.env.SMTP_USER
         });
 
         try {
@@ -104,13 +104,13 @@ export default async function handler(req, res) {
             console.error(">>> [CreateUser] Error generating link:", linkError);
             emailStatus = "link_gen_failed";
         }
-        
+
         // Chỉ gửi mail nếu có cấu hình SMTP
         if (hasSmtpUser && hasSmtpPass && verificationLink) {
             try {
                 // Cấu hình Transporter
                 let transporterConfig = {};
-                
+
                 // Ưu tiên dùng service 'gmail' nếu không có HOST cụ thể (dễ cấu hình hơn)
                 if (process.env.SMTP_SERVICE === 'gmail' || !process.env.SMTP_HOST) {
                     transporterConfig = {
@@ -144,9 +144,9 @@ export default async function handler(req, res) {
                 }
 
                 // Format vai trò hiển thị cho đẹp
-                const displayRole = role === 'brand_owner' ? 'Chủ sở hữu thương hiệu (Brand Owner)' : 
-                                    role === 'content_creator' ? 'Nhà sáng tạo nội dung (Content Creator)' : 
-                                    role === 'admin' ? 'Quản trị viên (Admin)' : 'Thành viên';
+                const displayRole = role === 'brand_owner' ? 'Chủ sở hữu thương hiệu (Brand Owner)' :
+                    role === 'content_creator' ? 'Nhà sáng tạo nội dung (Content Creator)' :
+                        role === 'admin' ? 'Quản trị viên (Admin)' : 'Thành viên';
 
                 await transporter.sendMail({
                     from: `"MOODBIZ System" <${process.env.SMTP_USER}>`,
