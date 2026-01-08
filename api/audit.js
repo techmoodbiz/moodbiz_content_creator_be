@@ -153,13 +153,11 @@ export default async function handler(req, res) {
     // --- PROMPT OPTIMIZATION ---
     finalPrompt += `
 \n*** IMPORTANT SYSTEM INSTRUCTIONS ***
-1. Analyze the text strictly according to the 4 BLOCKS provided.
-2. Return ONLY valid JSON. **DO NOT** use Markdown formatting (no \`\`\`json).
-3. **DO NOT** include any introductory text or explanations outside the JSON object.
-4. "category" MUST be exactly one of: "language", "ai_logic", "brand", "product".
-5. Provide a "citation" for every issue (e.g., "SOP: Grammar", "Brand: Tone").
-6. Keep "reason" and "suggestion" concise and in Vietnamese.
-7. Limit to top 15 most critical issues to avoid token limits.
+1. Return ONLY valid JSON. **DO NOT** use Markdown formatting (no \`\`\`json).
+2. "category" MUST be exactly one of: "language", "ai_logic", "brand", "product".
+3. **DEDUPLICATION RULE:** Ensure each problematic text span is listed ONLY ONCE under the most relevant category.
+4. Keep "reason" and "suggestion" concise and in Vietnamese.
+5. Limit to top 15 most critical issues.
 `;
 
     // Initialize Model
