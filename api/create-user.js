@@ -144,10 +144,11 @@ export default async function handler(req, res) {
                     role === 'content_creator' ? 'Nhà sáng tạo nội dung (Content Creator)' :
                         role === 'admin' ? 'Quản trị viên (Admin)' : 'Thành viên';
 
-                await transporter.sendMail({
+                const info = await transporter.sendMail({
                     from: `"MOODBIZ System" <${process.env.SMTP_USER}>`,
                     to: email,
                     subject: 'Thông báo: Tài khoản hệ thống MOODBIZ đã được khởi tạo',
+                    text: `Xin chào ${name},\n\nTài khoản của bạn đã được khởi tạo thành công trên hệ thống MOODBIZ Digital Growth Partner.\n\nThông tin đăng nhập:\nEmail: ${email}\nVai trò: ${displayRole}\n\nVui lòng truy cập đường dẫn sau để kích hoạt tài khoản:\n${verificationLink}\n\nTrân trọng,\nMOODBIZ Team`,
                     html: `
                         <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
                             <div style="background-color: #102d62; padding: 30px 40px; text-align: center;">
@@ -177,8 +178,10 @@ export default async function handler(req, res) {
                         </div>
                     `
                 });
-                console.log(">>> [CreateUser] Email sent successfully");
+                console.log(">>> [CreateUser] Email sent successfully. MessageID:", info.messageId);
+                console.log(">>> [CreateUser] SMTP Response:", info.response);
                 emailStatus = "sent";
+                debugInfo = `Sent. MsgID: ${info.messageId}`;
             } catch (emailError) {
                 console.error(">>> [CreateUser] Failed to send notification email:", emailError);
                 emailStatus = "failed: " + emailError.message;
