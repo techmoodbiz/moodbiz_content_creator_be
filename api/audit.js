@@ -95,23 +95,20 @@ export default async function handler(req, res) {
 
     let finalPrompt = constructedPrompt || `Audit:\n"""\n${text}\n"""`;
 
-    // STRICT ENFORCEMENT CONFIG
-    finalPrompt += `
-\n*** SYSTEM CONFIGURATION (OVERRIDE) ***
-1. **JSON ONLY:** Return valid JSON matching the schema. No Markdown.
-2. **LANGUAGE:** All "reason", "summary", and "suggestion" must be in **Vietnamese**.
-3. **FULL SENTENCES:** "problematic_text" must include the context (full sentence). "suggestion" must be the complete rewritten sentence.
-4. **DEDUPLICATION:** Do not repeat the same error in multiple categories. Follow priority: Product > Brand > Logic > Language.
-5. **STRICTNESS:** If the rule is not in the provided Data Source, DO NOT invent an issue.
-6. **CATEGORY MAPPING:**
-   - Tone, Voice, Style -> "brand"
-   - Grammar, Spelling -> "language"
-   - Fact vs Product Info -> "product"
-   - Logic, Hallucination -> "ai_logic"
-`;
+    // STRICT ENFORCEMENT SYSTEM INSTRUCTION
+    const systemInstruction = `Bạn là hệ thống audit nội dung cực kỳ khắt khe, chỉ sử dụng thông tin từ input và các SOP kèm theo, tuyệt đối không được bịa lỗi. Mọi lỗi được đánh dấu phải có căn cứ rõ ràng trong văn bản và trong SOP tương ứng. Mỗi lỗi luôn phải trích nguyên câu đầy đủ chứa lỗi vào trường problematic_text, và trong trường suggestion bạn phải viết lại cả câu hoàn chỉnh đã được sửa, giữ nguyên ý ban đầu nhưng sửa dứt điểm lỗi đã nêu trong reason.
+
+Khi phân tích, bạn chỉ được sử dụng đúng nguồn tham chiếu cho từng category. Với category language, bạn chỉ chấm lỗi ngôn ngữ (chính tả, ngữ pháp, dùng từ, cấu trúc câu, câu rườm rà) theo đúng SOP Language của ngôn ngữ tương ứng: nội dung tiếng Việt thì chỉ dùng SOP Language tiếng Việt, nội dung tiếng Anh thì chỉ dùng SOP Language tiếng Anh, tuyệt đối không đánh giá giọng văn, cá tính thương hiệu hay tone trong khối này. Các đánh giá về giọng văn, mức độ trang trọng/thân mật, cảm xúc, cách xưng hô, phong cách viết (formal, friendly, expert…) phải được xếp vào category brand với nhãn rõ là “Brand tone of voice” và chỉ dựa trên tài liệu Brand (brand book, brand guideline, brand checklist…). Với category product, bạn chỉ chấm khi input có chọn sản phẩm cụ thể và chỉ dựa trên thông tin sản phẩm/SOP product của đúng sản phẩm đó (tính năng, lợi ích, claim, giới hạn, cảnh báo…). Với category ai_logic, bạn chỉ chấm lỗi logic, fact, suy luận, hallucination, sử dụng dữ liệu, cấu trúc RAG và tuân thủ quy tắc AI dựa trên SOP AI Logic, không chấm chính tả hay tone ở khối này.
+
+Bạn phải audit nghiêm ngặt cả 4 khối language, ai_logic, brand, product, nhưng vẫn tuân thủ nguyên tắc không bịa lỗi. Khi tham chiếu đến một quy tắc trong SOP, trường citation bắt buộc phải là tên hiển thị (display name) chính xác của rule/SOP đó trong hệ thống MarkRule, không được tự đặt tên khác. Nếu một lỗi liên quan đến nhiều quy tắc, bạn chọn tên rule quan trọng nhất và phù hợp nhất làm citation, không liệt kê danh sách dài các rule chung chung.
+
+Bạn phải phân loại category cực kỳ rõ ràng và không được trùng lặp. Mỗi lỗi chỉ thuộc một category phù hợp nhất trong: language, ai_logic, brand, product. Không được lặp lại cùng một lỗi ở nhiều category khác nhau; nếu một lỗi đã được ghi nhận ở brand thì không được xuất hiện lại ở language, ai_logic hoặc product. Việc audit phải khắt khe: ưu tiên phát hiện lỗi sai fact, claim phóng đại so với SOP, lỗi dùng sai guideline brand hoặc product và lỗi ngôn ngữ làm giảm độ rõ ràng hoặc tính chuyên nghiệp, nhưng nếu không có căn cứ thì không được tự tạo lỗi. Nếu không tìm thấy lỗi trong một category, để identified_issues trống hoặc không tạo lỗi cho category đó.
+
+Trong tất cả các trường văn bản, bạn phải diễn đạt bằng tiếng Việt. Trường reason cần giải thích rõ ràng, dễ hiểu vì sao đó là lỗi và nếu có thể hãy nhắc ngắn gọn quy tắc liên quan trong SOP (sử dụng đúng tên hiển thị trong MarkRule ở trường citation). Trường suggestion phải đưa ra câu sửa hoàn chỉnh, mạch lạc, phù hợp với brand, product và SOP. Phần summary phải tóm tắt kết quả audit bằng tiếng Việt, nhấn mạnh các nhóm lỗi chính theo đúng category.`;
 
     const model = genAI.getGenerativeModel({
       model: 'gemini-2.0-flash-exp',
+      systemInstruction: systemInstruction,
       generationConfig: {
         temperature: 0.1,
         topP: 0.95,
