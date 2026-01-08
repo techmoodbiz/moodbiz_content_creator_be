@@ -1,5 +1,5 @@
 import admin from "firebase-admin";
-import nodemailer from "nodemailer";
+import fetch from "node-fetch";
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -68,7 +68,7 @@ export default async function handler(req, res) {
             email,
             password,
             displayName: name,
-            emailVerified: false // Set explicitly to false so verify link works if needed
+            emailVerified: false
         });
 
         // 2. Create User Profile in Firestore
@@ -82,125 +82,68 @@ export default async function handler(req, res) {
             createdBy: currentUser.uid,
         });
 
-        // 3. Generate Link & Send Notification Email
+        // 3. METHOD B: Trigger Firebase Built-in Email Template via REST API
+        // Strategy: 
+        // 1. Admin (server) creates a Custom Token for the new user.
+        // 2. Server exchanges Custom Token for an ID Token (Simulating the new user logging in).
+        // 3. Server calls "sendOobCode" (VERIFY_EMAIL) using the new user's ID Token.
+        // Result: Firebase sends its native email template. No SMTP needed.
+
         let emailStatus = "init";
-        let verificationLink = null;
         let debugInfo = "";
 
-        // Kiểm tra biến môi trường
-        const hasSmtpUser = !!process.env.SMTP_USER;
-        const hasSmtpPass = !!process.env.SMTP_PASS;
-
-        console.log(">>> [CreateUser] SMTP Init. User:", process.env.SMTP_USER);
+        // Web API Key is required for the REST API calls. 
+        // Use env var or fallback to the known public key from client config.
+        const WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || "AIzaSyAa7s0JC9Z6Jz_cMQCD_oBT0ZUzj50tMVA";
 
         try {
-            // Tạo link để người dùng có thể click vào và đăng nhập/xác thực ngay
-            verificationLink = await auth.generateEmailVerificationLink(email);
-        } catch (linkError) {
-            console.error(">>> [CreateUser] Error generating link:", linkError);
-            emailStatus = "link_gen_failed";
-        }
+            console.log(`>>> [CreateUser] Starting Firebase Native Email trigger for ${email}`);
 
-        // Chỉ gửi mail nếu có cấu hình SMTP
-        if (hasSmtpUser && hasSmtpPass && verificationLink) {
-            try {
-                // FIX VERCEL TIMEOUT:
-                // 1. Không dùng service: 'gmail' (vì nó mặc định port 587 dễ bị chặn/delay).
-                // 2. Ép dùng port 465 (SSL) nếu là Gmail hoặc Env Var yêu cầu.
+            // A. Create Custom Token
+            const customToken = await auth.createCustomToken(newUser.uid);
 
-                const host = process.env.SMTP_HOST || "smtp.gmail.com";
-                // Nếu host là gmail, ép dùng 465. Nếu không, dùng biến môi trường, mặc định 465.
-                const isGmail = host.includes("gmail");
-                const port = isGmail ? 465 : parseInt(process.env.SMTP_PORT || "465");
-                const secure = port === 465; // Port 465 luôn đi kèm secure: true (SSL)
+            // B. Exchange for ID Token (Sign in as the new user)
+            const signInRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:signInWithCustomToken?key=${WEB_API_KEY}`, {
+                method: 'POST',
+                body: JSON.stringify({ token: customToken, returnSecureToken: true }),
+                headers: { 'Content-Type': 'application/json' }
+            });
 
-                console.log(`>>> [CreateUser] Connecting SMTP: ${host}:${port} (SSL: ${secure})`);
+            const signInData = await signInRes.json();
 
-                const transporter = nodemailer.createTransport({
-                    host: host,
-                    port: port,
-                    secure: secure,
-                    auth: {
-                        user: process.env.SMTP_USER,
-                        pass: process.env.SMTP_PASS,
-                    },
-                    // Thêm Timeout ngắn để fail nhanh nếu mạng bị treo, tránh lỗi "Greeting never received" vô tận
-                    connectionTimeout: 10000, // 10s
-                    greetingTimeout: 5000,    // 5s
-                    socketTimeout: 10000      // 10s
-                });
-
-                // Verify connection configuration
-                try {
-                    await transporter.verify();
-                    console.log(">>> [CreateUser] SMTP Connection Verified Successfully");
-                } catch (verifyErr) {
-                    console.error(">>> [CreateUser] SMTP Verify Failed:", verifyErr);
-                    throw new Error("SMTP Verify Failed: " + verifyErr.message);
-                }
-
-                // Format vai trò hiển thị cho đẹp
-                const displayRole = role === 'brand_owner' ? 'Chủ sở hữu thương hiệu (Brand Owner)' :
-                    role === 'content_creator' ? 'Nhà sáng tạo nội dung (Content Creator)' :
-                        role === 'admin' ? 'Quản trị viên (Admin)' : 'Thành viên';
-
-                const info = await transporter.sendMail({
-                    from: `"MOODBIZ System" <${process.env.SMTP_USER}>`,
-                    to: email,
-                    subject: 'Thông báo: Tài khoản hệ thống MOODBIZ đã được khởi tạo',
-                    text: `Xin chào ${name},\n\nTài khoản của bạn đã được khởi tạo thành công trên hệ thống MOODBIZ Digital Growth Partner.\n\nThông tin đăng nhập:\nEmail: ${email}\nVai trò: ${displayRole}\n\nVui lòng truy cập đường dẫn sau để kích hoạt tài khoản:\n${verificationLink}\n\nTrân trọng,\nMOODBIZ Team`,
-                    html: `
-                        <div style="font-family: 'Helvetica Neue', Arial, sans-serif; max-width: 600px; margin: 0 auto; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden;">
-                            <div style="background-color: #102d62; padding: 30px 40px; text-align: center;">
-                                <h1 style="color: #ffffff; margin: 0; font-size: 24px; text-transform: uppercase; letter-spacing: 2px;">MOODBIZ <span style="color: #01ccff;">PORTAL</span></h1>
-                            </div>
-                            <div style="padding: 40px;">
-                                <h2 style="color: #102d62; margin-top: 0;">Xin chào ${name},</h2>
-                                <p style="color: #475569; font-size: 16px; line-height: 1.6;">
-                                    Tài khoản của bạn đã được khởi tạo thành công trên hệ thống <strong>MOODBIZ Digital Growth Partner</strong>.
-                                </p>
-                                
-                                <div style="background-color: #f8fafc; border-left: 4px solid #01ccff; padding: 15px 20px; margin: 25px 0; border-radius: 4px;">
-                                    <p style="margin: 5px 0; font-size: 14px; color: #64748b;"><strong>Email đăng nhập:</strong> ${email}</p>
-                                    <p style="margin: 5px 0; font-size: 14px; color: #64748b;"><strong>Mật khẩu:</strong> (Vui lòng liên hệ Admin để nhận mật khẩu hoặc sử dụng mật khẩu đã được cấp)</p>
-                                    <p style="margin: 5px 0; font-size: 14px; color: #64748b;"><strong>Vai trò:</strong> ${displayRole}</p>
-                                </div>
-
-                                <p style="color: #475569; font-size: 16px;">Vui lòng nhấn nút bên dưới để kích hoạt tài khoản và truy cập hệ thống:</p>
-                                
-                                <div style="text-align: center; margin: 35px 0;">
-                                    <a href="${verificationLink}" style="display: inline-block; background-color: #102d62; color: #ffffff; font-weight: bold; padding: 14px 32px; text-decoration: none; border-radius: 8px; box-shadow: 0 4px 6px rgba(16, 45, 98, 0.2);">Truy cập hệ thống ngay</a>
-                                </div>
-                                
-                                <hr style="border: none; border-top: 1px solid #e2e8f0; margin: 30px 0;">
-                                <p style="font-size: 12px; color: #94a3b8; text-align: center;">Email này được gửi tự động từ hệ thống MOODBIZ. Vui lòng không trả lời.</p>
-                            </div>
-                        </div>
-                    `
-                });
-                console.log(">>> [CreateUser] Email sent successfully. MessageID:", info.messageId);
-                console.log(">>> [CreateUser] SMTP Response:", info.response);
-                emailStatus = "sent";
-                debugInfo = `Sent. MsgID: ${info.messageId}`;
-            } catch (emailError) {
-                console.error(">>> [CreateUser] Failed to send notification email:", emailError);
-                emailStatus = "failed: " + emailError.message;
-                debugInfo = "SMTP Error. Check logs for details.";
+            if (!signInRes.ok) {
+                throw new Error(`SignIn failed: ${signInData.error?.message || 'Unknown error'}`);
             }
-        } else {
-            emailStatus = "skipped_missing_config";
-            debugInfo = "Missing SMTP_USER or SMTP_PASS in environment variables.";
-            console.warn(">>> [CreateUser] SMTP credentials missing. Email skipped.");
-            if (verificationLink) {
-                console.log(">>> MANUAL LINK (SMTP MISSING):", verificationLink);
+
+            const newUserIdToken = signInData.idToken;
+
+            // C. Trigger Verification Email
+            const verifyRes = await fetch(`https://identitytoolkit.googleapis.com/v1/accounts:sendOobCode?key=${WEB_API_KEY}`, {
+                method: 'POST',
+                body: JSON.stringify({ requestType: "VERIFY_EMAIL", idToken: newUserIdToken }),
+                headers: { 'Content-Type': 'application/json' }
+            });
+
+            const verifyData = await verifyRes.json();
+
+            if (!verifyRes.ok) {
+                throw new Error(`SendEmail failed: ${verifyData.error?.message || 'Unknown error'}`);
             }
+
+            console.log(">>> [CreateUser] Firebase Email Triggered Successfully.");
+            emailStatus = "sent_via_firebase_template";
+            debugInfo = "Firebase Native Email Sent";
+
+        } catch (e) {
+            console.error(">>> [CreateUser] Failed to trigger Firebase Email:", e);
+            emailStatus = "failed_firebase_trigger";
+            debugInfo = e.message;
         }
 
         return res.status(200).json({
             success: true,
-            message: `Created user ${name} successfully. Email status: ${emailStatus}`,
+            message: `User created. Email: ${emailStatus}`,
             userId: newUser.uid,
-            verificationLink: verificationLink,
             debug: debugInfo
         });
     } catch (error) {
