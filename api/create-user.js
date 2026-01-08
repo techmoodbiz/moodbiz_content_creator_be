@@ -68,7 +68,7 @@ export default async function handler(req, res) {
             email,
             password,
             displayName: name,
-            emailVerified: false
+            emailVerified: false 
         });
 
         // 2. Create User Profile in Firestore
@@ -91,7 +91,7 @@ export default async function handler(req, res) {
 
         let emailStatus = "init";
         let debugInfo = "";
-
+        
         // Web API Key is required for the REST API calls. 
         // Use env var or fallback to the known public key from client config.
         const WEB_API_KEY = process.env.FIREBASE_WEB_API_KEY || "AIzaSyAa7s0JC9Z6Jz_cMQCD_oBT0ZUzj50tMVA";
@@ -108,9 +108,9 @@ export default async function handler(req, res) {
                 body: JSON.stringify({ token: customToken, returnSecureToken: true }),
                 headers: { 'Content-Type': 'application/json' }
             });
-
+            
             const signInData = await signInRes.json();
-
+            
             if (!signInRes.ok) {
                 throw new Error(`SignIn failed: ${signInData.error?.message || 'Unknown error'}`);
             }
@@ -123,13 +123,13 @@ export default async function handler(req, res) {
                 body: JSON.stringify({ requestType: "VERIFY_EMAIL", idToken: newUserIdToken }),
                 headers: { 'Content-Type': 'application/json' }
             });
-
+            
             const verifyData = await verifyRes.json();
 
             if (!verifyRes.ok) {
-                throw new Error(`SendEmail failed: ${verifyData.error?.message || 'Unknown error'}`);
+                 throw new Error(`SendEmail failed: ${verifyData.error?.message || 'Unknown error'}`);
             }
-
+            
             console.log(">>> [CreateUser] Firebase Email Triggered Successfully.");
             emailStatus = "sent_via_firebase_template";
             debugInfo = "Firebase Native Email Sent";

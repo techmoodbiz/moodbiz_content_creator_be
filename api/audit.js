@@ -24,7 +24,7 @@ function robustJSONParse(text) {
   let clean = String(text);
   // Remove markdown code blocks if present
   clean = clean.replace(/```json/gi, '').replace(/```/g, '').trim();
-
+  
   const firstBrace = clean.indexOf('{');
   const lastBrace = clean.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1) {
