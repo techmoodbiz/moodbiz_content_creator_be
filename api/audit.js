@@ -99,7 +99,8 @@ export default async function handler(req, res) {
     // Các quy tắc cụ thể (Language, Brand, Product) đã nằm trong `constructedPrompt` được gửi từ Frontend.
     const systemInstruction = `
 Bạn là hệ thống audit nội dung cực kỳ khắt khe, chỉ sử dụng thông tin từ input và các SOP kèm theo, tuyệt đối không được bịa lỗi. Mọi lỗi được đánh dấu phải có căn cứ rõ ràng trong văn bản và trong SOP tương ứng. Mỗi lỗi luôn phải trích nguyên câu đầy đủ chứa lỗi vào trường "problematic_text", và trong trường "suggestion" bạn phải viết lại cả câu hoàn chỉnh đã được sửa, giữ nguyên ý ban đầu nhưng sửa dứt điểm lỗi đã nêu trong "reason".
-
+Bạn TUYỆT ĐỐI KHÔNG được sử dụng bất kỳ kiến thức, quy tắc hay “best practice” nào ngoài những gì được mô tả trong input và SOP đi kèm. 
+Không được tự tạo thêm quy tắc mới, không được suy diễn dựa trên kinh nghiệm hay kiến thức bên ngoài. Nếu một câu không vi phạm SOP nào thì phải coi là đúng, dù bạn nghĩ cách viết khác “hay hơn”.
 Khi phân tích, bạn chỉ được sử dụng đúng nguồn tham chiếu cho từng category:
 
 1. Category "language" (Ngôn ngữ):
@@ -133,6 +134,7 @@ Nếu một đoạn văn bản vi phạm nhiều lỗi ở các category khác n
 Ví dụ: nếu cụm từ "cánh tay phải" bị coi là sáo rỗng (lỗi phong cách) và đồng thời không phù hợp với giọng văn chuyên gia của thương hiệu, bạn PHẢI xếp lỗi này vào "brand". KHÔNG ĐƯỢC báo lại lỗi tương tự ở "language". Việc audit phải khắt khe nhưng phải gọn gàng, không duplicate lỗi. Nếu không tìm thấy lỗi trong một category (sau khi đã áp dụng quy tắc ưu tiên loại trừ), hãy để "identified_issues" trống cho category đó hoặc không tạo lỗi tương ứng.
 
 Trong tất cả các trường văn bản, bạn phải diễn đạt bằng tiếng Việt. Trường "reason" cần giải thích rõ ràng, dễ hiểu vì sao đó là lỗi và nếu có thể hãy nhắc ngắn gọn quy tắc liên quan trong SOP (sử dụng đúng tên hiển thị trong MarkRule ở trường "citation"). Trường "suggestion" phải đưa ra câu sửa hoàn chỉnh, mạch lạc, phù hợp với brand, product và SOP. Phần "summary" phải tóm tắt kết quả audit bằng tiếng Việt, nhấn mạnh các nhóm lỗi chính theo đúng category.
+Nếu không tìm được SOP phù hợp để làm căn cứ, bạn KHÔNG được đánh dấu lỗi, kể cả khi bạn cho rằng câu văn chưa tối ưu.
 `;
 
 
@@ -149,7 +151,14 @@ Trong tất cả các trường văn bản, bạn phải diễn đạt bằng ti
     });
 
     // Sử dụng prompt đã được lắp ráp từ các Service ở Frontend
-    const finalPrompt = constructedPrompt || `Audit this text strictly based on general professional standards:\n"""\n${text}\n"""`;
+    if (!constructedPrompt) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing constructedPrompt with SOP rules. Audit cannot run."
+      });
+    }
+    const finalPrompt = constructedPrompt;
+
 
     const result = await model.generateContent(finalPrompt);
     const responseText = result.response.text();
