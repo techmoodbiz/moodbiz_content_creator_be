@@ -119,7 +119,7 @@ If you find an issue but cannot map it to a specific Rule Label in the whitelist
 `;
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-3-flash-preview', // Using 3-flash for high reasoning capability on strict rules
+      model: 'gemini-2.0-flash-exp', // Revert to 2.0-flash-exp for better JSON stability
       systemInstruction: systemInstruction,
       generationConfig: {
         temperature: 0.1, // Near zero for deterministic results
