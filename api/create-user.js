@@ -91,11 +91,7 @@ export default async function handler(req, res) {
         const hasSmtpUser = !!process.env.SMTP_USER;
         const hasSmtpPass = !!process.env.SMTP_PASS;
 
-        console.log(">>> [CreateUser] SMTP Check:", {
-            hasUser: hasSmtpUser,
-            hasPass: hasSmtpPass,
-            userEmail: process.env.SMTP_USER
-        });
+        console.log(">>> [CreateUser] SMTP Init. User:", process.env.SMTP_USER);
 
         try {
             // Tạo link để người dùng có thể click vào và đăng nhập/xác thực ngay
@@ -108,39 +104,39 @@ export default async function handler(req, res) {
         // Chỉ gửi mail nếu có cấu hình SMTP
         if (hasSmtpUser && hasSmtpPass && verificationLink) {
             try {
-                // Cấu hình Transporter
-                let transporterConfig = {};
+                // FIX VERCEL TIMEOUT:
+                // 1. Không dùng service: 'gmail' (vì nó mặc định port 587 dễ bị chặn/delay).
+                // 2. Ép dùng port 465 (SSL) nếu là Gmail hoặc Env Var yêu cầu.
 
-                // Ưu tiên dùng service 'gmail' nếu không có HOST cụ thể (dễ cấu hình hơn)
-                if (process.env.SMTP_SERVICE === 'gmail' || !process.env.SMTP_HOST) {
-                    transporterConfig = {
-                        service: 'gmail',
-                        auth: {
-                            user: process.env.SMTP_USER,
-                            pass: process.env.SMTP_PASS, // Phải là App Password nếu dùng Gmail 2FA
-                        },
-                    };
-                } else {
-                    // Cấu hình SMTP Custom (dành cho doanh nghiệp)
-                    transporterConfig = {
-                        host: process.env.SMTP_HOST,
-                        port: parseInt(process.env.SMTP_PORT || "587"),
-                        secure: process.env.SMTP_SECURE === "true", // true for 465, false for other ports
-                        auth: {
-                            user: process.env.SMTP_USER,
-                            pass: process.env.SMTP_PASS,
-                        },
-                    };
-                }
+                const host = process.env.SMTP_HOST || "smtp.gmail.com";
+                // Nếu host là gmail, ép dùng 465. Nếu không, dùng biến môi trường, mặc định 465.
+                const isGmail = host.includes("gmail");
+                const port = isGmail ? 465 : parseInt(process.env.SMTP_PORT || "465");
+                const secure = port === 465; // Port 465 luôn đi kèm secure: true (SSL)
 
-                const transporter = nodemailer.createTransport(transporterConfig);
+                console.log(`>>> [CreateUser] Connecting SMTP: ${host}:${port} (SSL: ${secure})`);
+
+                const transporter = nodemailer.createTransport({
+                    host: host,
+                    port: port,
+                    secure: secure,
+                    auth: {
+                        user: process.env.SMTP_USER,
+                        pass: process.env.SMTP_PASS,
+                    },
+                    // Thêm Timeout ngắn để fail nhanh nếu mạng bị treo, tránh lỗi "Greeting never received" vô tận
+                    connectionTimeout: 10000, // 10s
+                    greetingTimeout: 5000,    // 5s
+                    socketTimeout: 10000      // 10s
+                });
 
                 // Verify connection configuration
                 try {
                     await transporter.verify();
-                    console.log(">>> [CreateUser] SMTP Connection Verified");
+                    console.log(">>> [CreateUser] SMTP Connection Verified Successfully");
                 } catch (verifyErr) {
-                    throw new Error("SMTP Connection Failed: " + verifyErr.message);
+                    console.error(">>> [CreateUser] SMTP Verify Failed:", verifyErr);
+                    throw new Error("SMTP Verify Failed: " + verifyErr.message);
                 }
 
                 // Format vai trò hiển thị cho đẹp
@@ -181,11 +177,12 @@ export default async function handler(req, res) {
                         </div>
                     `
                 });
+                console.log(">>> [CreateUser] Email sent successfully");
                 emailStatus = "sent";
             } catch (emailError) {
                 console.error(">>> [CreateUser] Failed to send notification email:", emailError);
                 emailStatus = "failed: " + emailError.message;
-                debugInfo = "Check SMTP config in .env. If using Gmail, use App Password.";
+                debugInfo = "SMTP Error. Check logs for details.";
             }
         } else {
             emailStatus = "skipped_missing_config";
