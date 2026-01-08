@@ -95,13 +95,19 @@ export default async function handler(req, res) {
 
     let finalPrompt = constructedPrompt || `Audit:\n"""\n${text}\n"""`;
 
+    // STRICT ENFORCEMENT CONFIG
     finalPrompt += `
-\n*** SYSTEM CONFIGURATION ***
+\n*** SYSTEM CONFIGURATION (OVERRIDE) ***
 1. **JSON ONLY:** Return valid JSON matching the schema. No Markdown.
 2. **LANGUAGE:** All "reason", "summary", and "suggestion" must be in **Vietnamese**.
 3. **FULL SENTENCES:** "problematic_text" must include the context (full sentence). "suggestion" must be the complete rewritten sentence.
 4. **DEDUPLICATION:** Do not repeat the same error in multiple categories. Follow priority: Product > Brand > Logic > Language.
 5. **STRICTNESS:** If the rule is not in the provided Data Source, DO NOT invent an issue.
+6. **CATEGORY MAPPING:**
+   - Tone, Voice, Style -> "brand"
+   - Grammar, Spelling -> "language"
+   - Fact vs Product Info -> "product"
+   - Logic, Hallucination -> "ai_logic"
 `;
 
     const model = genAI.getGenerativeModel({
