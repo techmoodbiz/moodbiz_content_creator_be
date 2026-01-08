@@ -22,6 +22,9 @@ if (!admin.apps.length) {
 function robustJSONParse(text) {
   if (!text) return null;
   let clean = String(text);
+  // Remove markdown code blocks if present
+  clean = clean.replace(/```json/gi, '').replace(/```/g, '').trim();
+
   const firstBrace = clean.indexOf('{');
   const lastBrace = clean.lastIndexOf('}');
   if (firstBrace !== -1 && lastBrace !== -1) {
@@ -30,6 +33,7 @@ function robustJSONParse(text) {
     return null;
   }
   try { return JSON.parse(clean); } catch (e) { }
+  // Try cleaning common errors
   clean = clean.replace(/\/\/.*$/gm, '').replace(/,(\s*[}\]])/g, '$1').replace(/([{,]\s*)([a-zA-Z0-9_]+?)\s*:/g, '$1"$2":');
   try { return JSON.parse(clean); } catch (e) { }
   return null;
@@ -95,13 +99,19 @@ export default async function handler(req, res) {
       required: ["summary", "identified_issues"]
     };
 
-    // System Instruction mirroring the Frontend Logic to enforce consistency
+    // System Instruction mirrors the Frontend Logic to enforce consistency
     const systemInstruction = `
 You are MOODBIZ SUPREME AUDITOR - An automated Quality Control AI.
 
 **CORE DIRECTIVE:**
 You will receive a prompt containing strict Data Sources (Product Info, Brand Rules, SOPs) and a Text to audit.
 Your job is to strictly evaluate the text against those provided sources and return a structured JSON report.
+
+**STRICT CITATION RULE:**
+The 'citation' field MUST BE one of the specific "Rule Labels" provided in the prompt whitelist.
+- Do NOT invent new citation names.
+- Do NOT use generic terms like "Common Sense".
+- Ensure the citation string matches exactly one of the strings in the provided JSON whitelist.
 
 **STRICT OUTPUT RULES:**
 1. You MUST return a valid JSON object matching the defined schema.
@@ -115,7 +125,7 @@ Your job is to strictly evaluate the text against those provided sources and ret
 `;
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.0-flash-exp', // Using 2.0 Flash Exp as per request for latest flash model
+      model: 'gemini-2.0-flash-exp', // Revert to 2.0 Flash Exp as per request for better JSON stability
       systemInstruction: systemInstruction,
       generationConfig: {
         temperature: 0.1, // Low temperature for consistent auditing
@@ -134,9 +144,10 @@ Your job is to strictly evaluate the text against those provided sources and ret
     let parsedResult = robustJSONParse(responseText);
 
     if (!parsedResult) {
+      console.warn("Audit JSON parse failed, raw:", responseText);
       parsedResult = {
-        summary: "Lỗi định dạng JSON từ AI.",
-        identified_issues: [{ category: "ai_logic", severity: "Low", problematic_text: "System Error", citation: "System", reason: "Invalid JSON Output", suggestion: "Thử lại." }]
+        summary: "Lỗi định dạng JSON từ AI. Vui lòng thử lại.",
+        identified_issues: [{ category: "ai_logic", severity: "Low", problematic_text: "System Error", citation: "System", reason: "Invalid JSON Output from AI", suggestion: "Thử lại." }]
       };
     }
 
